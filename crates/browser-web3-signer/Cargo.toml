@@ -1,0 +1,23 @@
+[package]
+name = "browser-web3-signer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "CLI for browser-based web3 wallet signing (EVM + TRON): the agent-facing interface that opens a browser to your wallet for approval."
+
+[[bin]]
+name = "browser-web3-signer"
+path = "src/main.rs"
+
+[dependencies]
+browser-web3-signer-core = { workspace = true }
+browser-web3-signer-evm = { workspace = true }
+browser-web3-signer-tron = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

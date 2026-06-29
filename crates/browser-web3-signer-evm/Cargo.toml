@@ -1,0 +1,19 @@
+[package]
+name = "browser-web3-signer-evm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "EVM browser wallet signer: connect / send-transaction / sign-message / sign-typed-data via a browser wallet, plus read-only balance queries."
+
+[dependencies]
+browser-web3-signer-core = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+alloy = { version = "1", default-features = false, features = ["std", "provider-http", "reqwest-rustls-tls", "contract", "rpc-types-eth"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

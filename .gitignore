@@ -1,0 +1,9 @@
+/target
+/lcov.info
+/coverage/
+# Node/TypeScript adaptor build artifacts.
+node_modules/
+ts/**/dist/
+# Local Claude Code agent state: settings, scheduled-task lock, and linked
+# git worktrees (each with its own target/). Never part of the project.
+/.claude/
