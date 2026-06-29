@@ -4,11 +4,11 @@
 //! Chain crates wrap an [`Engine`] with typed methods (see `EvmSigner`).
 
 use std::pin::Pin;
-use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
+use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::browser::{self, BrowserChoice, UrlKind};
@@ -16,10 +16,11 @@ use crate::config::{BindPort, Port};
 use crate::errors::{Result, SignerError};
 use crate::http::build_router;
 use crate::pending_store::{PendingStore, REQUEST_TIMEOUT};
+use crate::shared::Shared;
 use crate::types::{Request, RequestResult};
 
 /// A future resolving to the signed result string (address / tx hash / signature).
-pub type ResultFuture = Pin<Box<dyn std::future::Future<Output = Result<String>> + Send>>;
+pub type ResultFuture = Pin<Box<dyn Future<Output = Result<String>> + Send>>;
 
 /// A registered request: its id, the approval URL to open, and a future for the result.
 pub struct Prepared {
@@ -39,7 +40,7 @@ struct ServerState {
 
 /// The signing engine for a single chain's request type `R`.
 pub struct Engine<R: Request> {
-    store: Arc<PendingStore<R>>,
+    store: Shared<PendingStore<R>>,
     index_html: &'static str,
     bind: BindPort,
     browser: BrowserChoice,
@@ -50,7 +51,7 @@ impl<R: Request> Engine<R> {
     /// Create an engine that will serve `index_html` and bind according to `bind` on first use.
     pub fn new(index_html: &'static str, bind: BindPort, browser: BrowserChoice) -> Self {
         Self {
-            store: Arc::new(PendingStore::new()),
+            store: Shared::new(PendingStore::new()),
             index_html,
             bind,
             browser,
@@ -59,8 +60,8 @@ impl<R: Request> Engine<R> {
     }
 
     /// The shared pending store (used by the daemon to add extra routes).
-    pub fn store(&self) -> Arc<PendingStore<R>> {
-        self.store.clone()
+    pub fn store(&self) -> Shared<PendingStore<R>> {
+        self.store.share()
     }
 
     /// Start the HTTP bridge if it isn't already running; returns the bound port. Idempotent.
@@ -77,11 +78,11 @@ impl<R: Request> Engine<R> {
 
         let (listener, port) = bind_listener(self.bind).await?;
 
-        let app = build_router(self.store.clone(), self.index_html);
+        let app = build_router(self.store.share(), self.index_html);
         let (tx, rx) = oneshot::channel::<()>();
         let handle = tokio::spawn(async move {
             let server = axum::serve(listener, app).with_graceful_shutdown(async move {
-                let _ = rx.await;
+                drop(rx.await);
             });
             if let Err(e) = server.await {
                 tracing::error!("http bridge error: {e}");
@@ -104,9 +105,9 @@ impl<R: Request> Engine<R> {
         let rx = self.store.create(request);
         let url = browser::build_url(port, id, kind);
 
-        let store = self.store.clone();
+        let store = self.store.share();
         let result: ResultFuture = Box::pin(async move {
-            let outcome = match tokio::time::timeout(REQUEST_TIMEOUT, rx).await {
+            let outcome = match timeout(REQUEST_TIMEOUT, rx).await {
                 Ok(Ok(result)) => map_result(result),
                 Ok(Err(_)) => Err(SignerError::Cancelled(id.to_string())),
                 Err(_) => Err(SignerError::Timeout(REQUEST_TIMEOUT.as_secs())),
@@ -139,9 +140,9 @@ impl<R: Request> Engine<R> {
         let state = self.server.lock().await.take();
         if let Some(mut state) = state {
             if let Some(tx) = state.shutdown.take() {
-                let _ = tx.send(());
+                tx.send(()).ok();
             }
-            let _ = state.handle.await;
+            drop(state.handle.await);
         }
     }
 }
@@ -177,14 +178,14 @@ async fn bind_ephemeral() -> Result<(TcpListener, Port)> {
         .map_err(|e| SignerError::Http(e.to_string()))?
         .port();
     let port =
-        Port::try_new(raw).ok_or_else(|| SignerError::Http("OS assigned port 0".to_string()))?;
+        Port::try_new(raw).ok_or_else(|| SignerError::Http("OS assigned port 0".to_owned()))?;
     Ok((listener, port))
 }
 
 /// Map a browser-delivered [`RequestResult`] into the signed string or a typed error.
 fn map_result(result: RequestResult) -> Result<String> {
     match result {
-        RequestResult::Success { result, .. } => Ok(result),
+        RequestResult::Success { result: value, .. } => Ok(value),
         RequestResult::Error { error, code, .. } => Err(SignerError::Rejected {
             message: error,
             code,

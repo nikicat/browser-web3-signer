@@ -17,8 +17,11 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 opener = "0.7"
 hex = "0.4"
-url = "2"
+url = { version = "2", features = ["serde"] }
 
 [dev-dependencies]
 reqwest = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

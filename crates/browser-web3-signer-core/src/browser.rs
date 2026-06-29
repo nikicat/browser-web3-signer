@@ -1,6 +1,10 @@
 //! Browser launching and approval-URL construction (ported from `browser.ts` +
 //! `tools/trigger.ts:buildOpenBrowser`).
 
+use url::Url;
+
+use crate::config::Port;
+
 /// Which path the in-page router should render for a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UrlKind {
@@ -23,18 +27,18 @@ pub enum BrowserChoice {
 }
 
 /// Build the approval URL for a request id on the local bridge.
-pub fn build_url(port: crate::config::Port, id: uuid::Uuid, kind: UrlKind) -> url::Url {
+pub fn build_url(port: Port, id: uuid::Uuid, kind: UrlKind) -> Url {
     let seg = match kind {
         UrlKind::Connect => "connect",
         UrlKind::Sign => "sign",
     };
-    url::Url::parse(&format!("http://127.0.0.1:{port}/{seg}/{id}"))
+    Url::parse(&format!("http://127.0.0.1:{port}/{seg}/{id}"))
         .expect("bridge URL is always well-formed")
 }
 
 /// Open `url` according to `choice`. Failures are logged, not returned — the user can always
 /// open the URL manually (the caller is expected to have surfaced it).
-pub fn open(url: &url::Url, choice: &BrowserChoice) {
+pub fn open(url: &Url, choice: &BrowserChoice) {
     let result = match choice {
         BrowserChoice::Print => return,
         BrowserChoice::Named(name) => open_named(name, url.as_str()),

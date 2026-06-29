@@ -1,34 +1,11 @@
 //! TRON request types. JSON serialization must match what the embedded UI fetches from
 //! `GET /api/pending/:id` (ported from `browser-tron-signer/src/types.ts`).
 
-use browser_web3_signer_core::{HexData, Request, UrlKind};
+use browser_web3_signer_core::{HexData, Request, RequestMeta, UrlKind};
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::domain::{EnergyLimit, Percentage, Sun, TronAddress, TronNetwork};
-
-/// Fields common to every request, flattened into each variant's JSON.
-#[derive(Debug, Clone, Serialize)]
-pub struct RequestMeta {
-    /// Request id (UUID).
-    pub id: Uuid,
-    /// Creation timestamp (ms since the Unix epoch).
-    #[serde(rename = "createdAt")]
-    pub created_at: u64,
-}
-
-impl RequestMeta {
-    fn now() -> Self {
-        let created_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        RequestMeta {
-            id: Uuid::new_v4(),
-            created_at,
-        }
-    }
-}
 
 /// TIP-712 typed data (shape mirrors EIP-712). Open-ended sub-objects stay as JSON.
 #[derive(Debug, Clone, Serialize)]
@@ -160,21 +137,21 @@ pub enum TronRequest {
 
 impl TronRequest {
     /// Which page the browser should open.
-    pub fn url_kind(&self) -> UrlKind {
+    pub const fn url_kind(&self) -> UrlKind {
         match self {
-            TronRequest::Connect { .. } => UrlKind::Connect,
+            Self::Connect { .. } => UrlKind::Connect,
             _ => UrlKind::Sign,
         }
     }
 
-    fn meta(&self) -> &RequestMeta {
+    const fn meta(&self) -> &RequestMeta {
         match self {
-            TronRequest::Connect { meta, .. }
-            | TronRequest::SendTransaction { meta, .. }
-            | TronRequest::TriggerContract { meta, .. }
-            | TronRequest::DeployContract { meta, .. }
-            | TronRequest::SignMessage { meta, .. }
-            | TronRequest::SignTypedData { meta, .. } => meta,
+            Self::Connect { meta, .. }
+            | Self::SendTransaction { meta, .. }
+            | Self::TriggerContract { meta, .. }
+            | Self::DeployContract { meta, .. }
+            | Self::SignMessage { meta, .. }
+            | Self::SignTypedData { meta, .. } => meta,
         }
     }
 }
@@ -247,8 +224,8 @@ pub struct DeployContractParams {
 impl TronRequest {
     /// Build a `connect` request.
     pub fn connect(network: Option<TronNetwork>, address: Option<TronAddress>) -> Self {
-        TronRequest::Connect {
-            meta: RequestMeta::now(),
+        Self::Connect {
+            meta: RequestMeta::new(),
             network,
             address,
         }
@@ -256,8 +233,8 @@ impl TronRequest {
 
     /// Build a `send_transaction` request.
     pub fn send_transaction(params: SendTransactionParams) -> Self {
-        TronRequest::SendTransaction {
-            meta: RequestMeta::now(),
+        Self::SendTransaction {
+            meta: RequestMeta::new(),
             network: params.network,
             to: params.to,
             from: params.from,
@@ -268,8 +245,8 @@ impl TronRequest {
 
     /// Build a `trigger_contract` request.
     pub fn trigger_contract(params: TriggerContractParams) -> Self {
-        TronRequest::TriggerContract {
-            meta: RequestMeta::now(),
+        Self::TriggerContract {
+            meta: RequestMeta::new(),
             network: params.network,
             contract_address: params.contract_address,
             from: params.from,
@@ -282,8 +259,8 @@ impl TronRequest {
 
     /// Build a `deploy_contract` request.
     pub fn deploy_contract(params: DeployContractParams) -> Self {
-        TronRequest::DeployContract {
-            meta: RequestMeta::now(),
+        Self::DeployContract {
+            meta: RequestMeta::new(),
             network: params.network,
             from: params.from,
             contract_name: params.contract_name,
@@ -303,8 +280,8 @@ impl TronRequest {
         address: Option<TronAddress>,
         network: Option<TronNetwork>,
     ) -> Self {
-        TronRequest::SignMessage {
-            meta: RequestMeta::now(),
+        Self::SignMessage {
+            meta: RequestMeta::new(),
             network,
             message,
             address,
@@ -317,8 +294,8 @@ impl TronRequest {
         address: Option<TronAddress>,
         network: Option<TronNetwork>,
     ) -> Self {
-        TronRequest::SignTypedData {
-            meta: RequestMeta::now(),
+        Self::SignTypedData {
+            meta: RequestMeta::new(),
             network,
             typed_data,
             address,

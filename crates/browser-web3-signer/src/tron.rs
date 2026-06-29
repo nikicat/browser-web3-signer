@@ -3,9 +3,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use browser_web3_signer_core::{BindPort, BrowserChoice, HexData, Signature, TxHash};
+use browser_web3_signer_core::{BindPort, BrowserChoice, HexData, Signature, TxHash, Url};
 use browser_web3_signer_tron::{
-    DeployContractParams, DeployResult, EnergyLimit, Percentage, SendTransactionParams, Sun,
+    DeployContractParams, EnergyLimit, Percentage, SendTransactionParams, Sun,
     TriggerContractParams, TronAddress, TronNetwork, TronRequest, TronSigner, TypedData, config,
     parse_deploy_result,
 };
@@ -16,7 +16,7 @@ use crate::{CliContext, JsonString, OutputFormat, flow, output};
 
 /// TRON subcommands.
 #[derive(Debug, Subcommand)]
-pub enum TronCommand {
+pub(crate) enum TronCommand {
     /// Connect TronLink and print its address.
     Connect {
         /// Network (mainnet|shasta|nile; defaults to env / mainnet).
@@ -158,51 +158,214 @@ struct TypedDataFile {
     message: serde_json::Value,
 }
 
-fn make_signer(ctx: &CliContext) -> TronSigner {
-    let browser = match &ctx.open {
-        crate::OpenMode::Named(name) => BrowserChoice::Named(name.clone()),
-        _ => BrowserChoice::Default,
-    };
-    TronSigner::new(
-        BindPort::Preferred(config::port()),
-        config::default_network(),
-        browser,
-    )
+/// Owns the TRON signer plus presentation context for one CLI invocation; each subcommand is a
+/// method rather than a free function threading `(&signer, &ctx)`.
+struct TronCli {
+    signer: TronSigner,
+    ctx: CliContext,
 }
 
-/// Prepare, surface the URL, open (unless `--print`), await, and parse into a domain type.
-async fn approve<T>(
-    signer: &TronSigner,
-    ctx: &CliContext,
-    request: TronRequest,
-    what: &str,
-) -> Result<T>
-where
-    T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
-{
-    let prepared = signer.prepare(request).await?;
-    flow::await_signed(prepared, &ctx.open, signer, what).await
-}
+impl TronCli {
+    fn new(ctx: CliContext) -> Self {
+        let browser = match &ctx.open {
+            crate::OpenMode::Named(name) => BrowserChoice::Named(name.clone()),
+            _ => BrowserChoice::Default,
+        };
+        let signer = TronSigner::new(
+            BindPort::Preferred(config::port()),
+            config::default_network(),
+            browser,
+        );
+        Self { signer, ctx }
+    }
 
-fn tx_explorer(network: TronNetwork, hash: &TxHash) -> Option<String> {
-    config::network_config(network)
-        .map(|n| format!("{}/#/transaction/{}", n.block_explorer, hash.to_hex()))
-}
+    /// The effective network (explicit flag, else the signer default).
+    fn network_or_default(&self, network: Option<TronNetwork>) -> TronNetwork {
+        network.unwrap_or_else(|| self.signer.default_network())
+    }
 
-/// Run a TRON subcommand.
-pub async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
-    let signer = make_signer(&ctx);
-    let default_net = signer.default_network();
-    match cmd {
-        TronCommand::Connect { network, address } => {
-            let req = TronRequest::connect(Some(network.unwrap_or(default_net)), address);
-            let addr: TronAddress = approve(&signer, &ctx, req, "tron address").await?;
-            match ctx.output {
-                OutputFormat::Text => println!("Connected: {addr}"),
-                OutputFormat::Json => output::json(&json!({ "address": addr.to_base58() })),
-            }
+    /// Register, surface the URL, open unless `--print`, await, and parse into domain type `T`.
+    async fn approve<T>(&self, request: TronRequest, what: &str) -> Result<T>
+    where
+        T: std::str::FromStr,
+        <T as std::str::FromStr>::Err: std::fmt::Display,
+    {
+        let prepared = self.signer.prepare(request).await?;
+        flow::await_signed(prepared, &self.ctx.open, &self.signer, what).await
+    }
+
+    async fn connect(
+        &self,
+        network: Option<TronNetwork>,
+        address: Option<TronAddress>,
+    ) -> Result<()> {
+        let req = TronRequest::connect(Some(self.network_or_default(network)), address);
+        let addr: TronAddress = self.approve(req, "tron address").await?;
+        match self.ctx.output {
+            OutputFormat::Text => println!("Connected: {addr}"),
+            OutputFormat::Json => output::json(&json!({ "address": addr.to_base58() })),
         }
+        Ok(())
+    }
+
+    async fn send_transaction(&self, params: SendTransactionParams) -> Result<()> {
+        let network = self.network_or_default(params.network);
+        let hash: TxHash = self
+            .approve(TronRequest::send_transaction(params), "tx hash")
+            .await?;
+        self.emit_tx(network, &hash);
+        Ok(())
+    }
+
+    async fn trigger_contract(&self, params: TriggerContractParams) -> Result<()> {
+        let network = self.network_or_default(params.network);
+        let hash: TxHash = self
+            .approve(TronRequest::trigger_contract(params), "tx hash")
+            .await?;
+        self.emit_tx(network, &hash);
+        Ok(())
+    }
+
+    async fn deploy_contract(
+        &self,
+        abi_file: &std::path::Path,
+        params: DeployContractParams,
+    ) -> Result<()> {
+        let network = self.network_or_default(params.network);
+        let abi_contents = std::fs::read_to_string(abi_file)
+            .with_context(|| format!("reading ABI file {}", abi_file.display()))?;
+        let params = DeployContractParams {
+            abi: serde_json::from_str(&abi_contents).context("parsing ABI JSON")?,
+            ..params
+        };
+        let prepared = self
+            .signer
+            .prepare(TronRequest::deploy_contract(params))
+            .await?;
+        let raw = flow::await_raw(prepared, &self.ctx.open, &self.signer).await?;
+        let res = parse_deploy_result(&raw)?;
+        let explorer = tx_explorer(network, &res.tx_hash);
+        match self.ctx.output {
+            OutputFormat::Text => {
+                println!("Tx hash:  {}", res.tx_hash.to_hex());
+                println!("Contract: {}", res.contract_address);
+                if let Some(url) = &explorer {
+                    println!("Explorer: {url}");
+                }
+            }
+            OutputFormat::Json => output::json(&json!({
+                "txHash": res.tx_hash.to_hex(),
+                "contractAddress": res.contract_address.to_base58(),
+                "explorer": explorer,
+            })),
+        }
+        Ok(())
+    }
+
+    async fn sign_typed_data(
+        &self,
+        file: &std::path::Path,
+        address: Option<TronAddress>,
+        network: Option<TronNetwork>,
+    ) -> Result<()> {
+        let contents = std::fs::read_to_string(file)
+            .with_context(|| format!("reading typed-data file {}", file.display()))?;
+        let parsed: TypedDataFile =
+            serde_json::from_str(&contents).context("parsing typed-data JSON")?;
+        let typed = TypedData {
+            domain: parsed.domain,
+            types: parsed.types,
+            primary_type: parsed.primary_type,
+            message: parsed.message,
+        };
+        let req =
+            TronRequest::sign_typed_data(typed, address, Some(self.network_or_default(network)));
+        self.sign(req).await
+    }
+
+    /// Shared tail for `sign_message` / `sign_typed_data`: await a signature and emit it.
+    async fn sign(&self, req: TronRequest) -> Result<()> {
+        let sig: Signature = self.approve(req, "signature").await?;
+        match self.ctx.output {
+            OutputFormat::Text => println!("Signature: {sig}"),
+            OutputFormat::Json => output::json(&json!({ "signature": sig.to_string() })),
+        }
+        Ok(())
+    }
+
+    async fn get_balance(&self, address: &TronAddress, network: Option<TronNetwork>) -> Result<()> {
+        let res = self.signer.get_balance(address, network).await?;
+        match self.ctx.output {
+            OutputFormat::Text => {
+                println!("Balance: {} {}", res.amount.to_trx_string(), res.symbol);
+                println!("Sun:     {}", res.amount);
+            }
+            OutputFormat::Json => output::json(&json!({
+                "balance": res.amount.to_trx_string(),
+                "sun": res.amount.to_string(),
+                "symbol": res.symbol.to_string(),
+            })),
+        }
+        Ok(())
+    }
+
+    async fn get_token_balance(
+        &self,
+        token: &TronAddress,
+        address: &TronAddress,
+        network: Option<TronNetwork>,
+    ) -> Result<()> {
+        let res = self
+            .signer
+            .get_token_balance(token, address, network)
+            .await?;
+        match self.ctx.output {
+            OutputFormat::Text => {
+                println!("Balance: {} {}", res.amount.to_decimal_string(), res.symbol);
+            }
+            OutputFormat::Json => output::json(&json!({
+                "balance": res.amount.to_decimal_string(),
+                "raw": res.amount.raw().to_string(),
+                "symbol": res.symbol.to_string(),
+                "decimals": res.amount.decimals().get(),
+            })),
+        }
+        Ok(())
+    }
+
+    fn emit_tx(&self, network: TronNetwork, hash: &TxHash) {
+        let explorer = tx_explorer(network, hash);
+        match self.ctx.output {
+            OutputFormat::Text => {
+                println!("Tx hash: {}", hash.to_hex());
+                if let Some(url) = &explorer {
+                    println!("Explorer: {url}");
+                }
+            }
+            OutputFormat::Json => output::json(&json!({
+                "txHash": hash.to_hex(),
+                "explorer": explorer,
+            })),
+        }
+    }
+}
+
+/// Build the tronscan transaction URL for a network + hash.
+fn tx_explorer(network: TronNetwork, hash: &TxHash) -> Option<Url> {
+    let n = config::network_config(network)?;
+    Url::parse(&format!(
+        "{}/#/transaction/{}",
+        n.block_explorer,
+        hash.to_hex()
+    ))
+    .ok()
+}
+
+/// Run a TRON subcommand by dispatching to the matching [`TronCli`] method.
+pub(crate) async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
+    let cli = TronCli::new(ctx);
+    match cmd {
+        TronCommand::Connect { network, address } => cli.connect(network, address).await,
         TronCommand::SendTransaction {
             to,
             from,
@@ -210,16 +373,14 @@ pub async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
             data,
             network,
         } => {
-            let net = network.unwrap_or(default_net);
-            let req = TronRequest::send_transaction(SendTransactionParams {
+            cli.send_transaction(SendTransactionParams {
                 to,
                 from,
                 amount,
                 data,
-                network: Some(net),
-            });
-            let hash: TxHash = approve(&signer, &ctx, req, "tx hash").await?;
-            emit_tx(&ctx, net, &hash);
+                network,
+            })
+            .await
         }
         TronCommand::TriggerContract {
             contract,
@@ -230,19 +391,16 @@ pub async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
             call_value,
             network,
         } => {
-            let net = network.unwrap_or(default_net);
-            let parameters = params.map(JsonString::into_value);
-            let req = TronRequest::trigger_contract(TriggerContractParams {
+            cli.trigger_contract(TriggerContractParams {
                 contract_address: contract,
                 from,
                 function_selector: selector,
-                parameters,
+                parameters: params.map(JsonString::into_value),
                 fee_limit,
                 call_value,
-                network: Some(net),
-            });
-            let hash: TxHash = approve(&signer, &ctx, req, "tx hash").await?;
-            emit_tx(&ctx, net, &hash);
+                network,
+            })
+            .await
         }
         TronCommand::DeployContract {
             abi_file,
@@ -256,13 +414,8 @@ pub async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
             user_fee_percentage,
             network,
         } => {
-            let net = network.unwrap_or(default_net);
-            let abi_contents = std::fs::read_to_string(&abi_file)
-                .with_context(|| format!("reading ABI file {}", abi_file.display()))?;
-            let abi: serde_json::Value =
-                serde_json::from_str(&abi_contents).context("parsing ABI JSON")?;
-            let req = TronRequest::deploy_contract(DeployContractParams {
-                abi,
+            let deploy = DeployContractParams {
+                abi: serde_json::Value::Null, // filled from --abi-file inside deploy_contract
                 bytecode,
                 contract_name: name,
                 parameters: params.map(JsonString::into_value),
@@ -271,26 +424,9 @@ pub async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
                 call_value,
                 origin_energy_limit,
                 user_fee_percentage,
-                network: Some(net),
-            });
-            let prepared = signer.prepare(req).await?;
-            let raw = flow::await_raw(prepared, &ctx.open, &signer).await?;
-            let res: DeployResult = parse_deploy_result(&raw)?;
-            let explorer = tx_explorer(net, &res.tx_hash);
-            match ctx.output {
-                OutputFormat::Text => {
-                    println!("Tx hash:  {}", res.tx_hash.to_hex());
-                    println!("Contract: {}", res.contract_address);
-                    if let Some(url) = &explorer {
-                        println!("Explorer: {url}");
-                    }
-                }
-                OutputFormat::Json => output::json(&json!({
-                    "txHash": res.tx_hash.to_hex(),
-                    "contractAddress": res.contract_address.to_base58(),
-                    "explorer": explorer,
-                })),
-            }
+                network,
+            };
+            cli.deploy_contract(&abi_file, deploy).await
         }
         TronCommand::SignMessage {
             message,
@@ -298,85 +434,19 @@ pub async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
             network,
         } => {
             let req =
-                TronRequest::sign_message(message, address, Some(network.unwrap_or(default_net)));
-            let sig: Signature = approve(&signer, &ctx, req, "signature").await?;
-            emit_signature(&ctx, &sig);
+                TronRequest::sign_message(message, address, Some(cli.network_or_default(network)));
+            cli.sign(req).await
         }
         TronCommand::SignTypedData {
             file,
             address,
             network,
-        } => {
-            let contents = std::fs::read_to_string(&file)
-                .with_context(|| format!("reading typed-data file {}", file.display()))?;
-            let parsed: TypedDataFile =
-                serde_json::from_str(&contents).context("parsing typed-data JSON")?;
-            let typed = TypedData {
-                domain: parsed.domain,
-                types: parsed.types,
-                primary_type: parsed.primary_type,
-                message: parsed.message,
-            };
-            let req =
-                TronRequest::sign_typed_data(typed, address, Some(network.unwrap_or(default_net)));
-            let sig: Signature = approve(&signer, &ctx, req, "signature").await?;
-            emit_signature(&ctx, &sig);
-        }
-        TronCommand::GetBalance { address, network } => {
-            let res = signer.get_balance(&address, network).await?;
-            match ctx.output {
-                OutputFormat::Text => {
-                    println!("Balance: {} {}", res.amount.to_trx_string(), res.symbol);
-                    println!("Sun:     {}", res.amount);
-                }
-                OutputFormat::Json => output::json(&json!({
-                    "balance": res.amount.to_trx_string(),
-                    "sun": res.amount.to_string(),
-                    "symbol": res.symbol.to_string(),
-                })),
-            }
-        }
+        } => cli.sign_typed_data(&file, address, network).await,
+        TronCommand::GetBalance { address, network } => cli.get_balance(&address, network).await,
         TronCommand::GetTokenBalance {
             token,
             address,
             network,
-        } => {
-            let res = signer.get_token_balance(&token, &address, network).await?;
-            match ctx.output {
-                OutputFormat::Text => {
-                    println!("Balance: {} {}", res.amount.to_decimal_string(), res.symbol);
-                }
-                OutputFormat::Json => output::json(&json!({
-                    "balance": res.amount.to_decimal_string(),
-                    "raw": res.amount.raw().to_string(),
-                    "symbol": res.symbol.to_string(),
-                    "decimals": res.amount.decimals().get(),
-                })),
-            }
-        }
-    }
-    Ok(())
-}
-
-fn emit_tx(ctx: &CliContext, network: TronNetwork, hash: &TxHash) {
-    let explorer = tx_explorer(network, hash);
-    match ctx.output {
-        OutputFormat::Text => {
-            println!("Tx hash: {}", hash.to_hex());
-            if let Some(url) = &explorer {
-                println!("Explorer: {url}");
-            }
-        }
-        OutputFormat::Json => output::json(&json!({
-            "txHash": hash.to_hex(),
-            "explorer": explorer,
-        })),
-    }
-}
-
-fn emit_signature(ctx: &CliContext, sig: &Signature) {
-    match ctx.output {
-        OutputFormat::Text => println!("Signature: {sig}"),
-        OutputFormat::Json => output::json(&json!({ "signature": sig.to_string() })),
+        } => cli.get_token_balance(&token, &address, network).await,
     }
 }

@@ -31,14 +31,14 @@ pub struct ChainId(pub u64);
 
 impl ChainId {
     /// The underlying numeric id.
-    pub fn get(self) -> u64 {
+    pub const fn get(self) -> u64 {
         self.0
     }
 }
 
 impl From<u64> for ChainId {
     fn from(v: u64) -> Self {
-        ChainId(v)
+        Self(v)
     }
 }
 
@@ -69,14 +69,14 @@ pub struct Address(pub AlloyAddress);
 
 impl Address {
     /// The underlying alloy address.
-    pub fn inner(&self) -> AlloyAddress {
+    pub const fn inner(&self) -> AlloyAddress {
         self.0
     }
 }
 
 impl From<AlloyAddress> for Address {
     fn from(a: AlloyAddress) -> Self {
-        Address(a)
+        Self(a)
     }
 }
 
@@ -108,7 +108,7 @@ pub struct Wei(pub U256);
 
 impl Wei {
     /// The underlying integer.
-    pub fn get(self) -> U256 {
+    pub const fn get(self) -> U256 {
         self.0
     }
 
@@ -125,7 +125,7 @@ impl Wei {
 
 impl From<U256> for Wei {
     fn from(v: U256) -> Self {
-        Wei(v)
+        Self(v)
     }
 }
 
@@ -181,7 +181,7 @@ pub struct Decimals(pub u8);
 
 impl Decimals {
     /// The raw decimal count.
-    pub fn get(self) -> u8 {
+    pub const fn get(self) -> u8 {
         self.0
     }
 }
@@ -199,7 +199,7 @@ pub struct Symbol(String);
 impl Symbol {
     /// Wrap a symbol string.
     pub fn new(s: impl Into<String>) -> Self {
-        Symbol(s.into())
+        Self(s.into())
     }
 
     /// The symbol as a string slice.
@@ -208,7 +208,7 @@ impl Symbol {
     }
 
     /// True if the contract reported no symbol.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 }
@@ -229,17 +229,17 @@ pub struct TokenAmount {
 
 impl TokenAmount {
     /// Build from a raw integer and a decimal scale.
-    pub fn new(raw: U256, decimals: Decimals) -> Self {
-        TokenAmount { raw, decimals }
+    pub const fn new(raw: U256, decimals: Decimals) -> Self {
+        Self { raw, decimals }
     }
 
     /// The raw, unscaled integer value.
-    pub fn raw(self) -> U256 {
+    pub const fn raw(self) -> U256 {
         self.raw
     }
 
     /// The token's decimal scale.
-    pub fn decimals(self) -> Decimals {
+    pub const fn decimals(self) -> Decimals {
         self.decimals
     }
 
@@ -267,7 +267,7 @@ impl DomainParseError {
     fn new(kind: &'static str, input: &str, source: impl fmt::Display) -> Self {
         Self {
             kind,
-            input: input.to_string(),
+            input: input.to_owned(),
             source: source.to_string(),
         }
     }
@@ -275,7 +275,7 @@ impl DomainParseError {
 
 impl fmt::Display for DomainParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid {} {:?}: {}", self.kind, self.input, self.source)
+        write!(f, "invalid {} '{}': {}", self.kind, self.input, self.source)
     }
 }
 

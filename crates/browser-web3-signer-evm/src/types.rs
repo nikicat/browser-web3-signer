@@ -4,34 +4,11 @@
 //! The request *kind* is the enum variant itself (serde-tagged via `type`), not a stored
 //! string — there is one source of truth for the discriminator.
 
-use browser_web3_signer_core::{Request, UrlKind};
+use browser_web3_signer_core::{Request, RequestMeta, UrlKind};
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::domain::{Address, CallData, ChainId, Wei};
-
-/// Fields common to every request, flattened into each variant's JSON.
-#[derive(Debug, Clone, Serialize)]
-pub struct RequestMeta {
-    /// Request id (UUID).
-    pub id: Uuid,
-    /// Creation timestamp (ms since the Unix epoch, matching JS `Date.now()`).
-    #[serde(rename = "createdAt")]
-    pub created_at: u64,
-}
-
-impl RequestMeta {
-    fn now() -> Self {
-        let created_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        RequestMeta {
-            id: Uuid::new_v4(),
-            created_at,
-        }
-    }
-}
 
 /// EIP-712 typed data. The sub-objects are open-ended by the standard, so they stay as JSON
 /// inside this named container rather than being forced into a lossy schema.
@@ -129,19 +106,19 @@ pub enum EvmRequest {
 
 impl EvmRequest {
     /// Which page the browser should open for this request.
-    pub fn url_kind(&self) -> UrlKind {
+    pub const fn url_kind(&self) -> UrlKind {
         match self {
-            EvmRequest::Connect { .. } => UrlKind::Connect,
+            Self::Connect { .. } => UrlKind::Connect,
             _ => UrlKind::Sign,
         }
     }
 
-    fn meta(&self) -> &RequestMeta {
+    const fn meta(&self) -> &RequestMeta {
         match self {
-            EvmRequest::Connect { meta, .. }
-            | EvmRequest::SendTransaction { meta, .. }
-            | EvmRequest::SignMessage { meta, .. }
-            | EvmRequest::SignTypedData { meta, .. } => meta,
+            Self::Connect { meta, .. }
+            | Self::SendTransaction { meta, .. }
+            | Self::SignMessage { meta, .. }
+            | Self::SignTypedData { meta, .. } => meta,
         }
     }
 }
@@ -176,8 +153,8 @@ pub struct SendTransactionParams {
 impl EvmRequest {
     /// Build a `connect` request with a fresh id.
     pub fn connect(chain_id: Option<ChainId>, address: Option<Address>) -> Self {
-        EvmRequest::Connect {
-            meta: RequestMeta::now(),
+        Self::Connect {
+            meta: RequestMeta::new(),
             chain_id,
             address,
         }
@@ -185,8 +162,8 @@ impl EvmRequest {
 
     /// Build a `send_transaction` request.
     pub fn send_transaction(params: SendTransactionParams) -> Self {
-        EvmRequest::SendTransaction {
-            meta: RequestMeta::now(),
+        Self::SendTransaction {
+            meta: RequestMeta::new(),
             chain_id: params.chain_id,
             to: params.to,
             from: params.from,
@@ -204,8 +181,8 @@ impl EvmRequest {
         address: Option<Address>,
         chain_id: Option<ChainId>,
     ) -> Self {
-        EvmRequest::SignMessage {
-            meta: RequestMeta::now(),
+        Self::SignMessage {
+            meta: RequestMeta::new(),
             chain_id,
             message,
             address,
@@ -218,8 +195,8 @@ impl EvmRequest {
         address: Option<Address>,
         chain_id: Option<ChainId>,
     ) -> Self {
-        EvmRequest::SignTypedData {
-            meta: RequestMeta::now(),
+        Self::SignTypedData {
+            meta: RequestMeta::new(),
             chain_id,
             typed_data,
             address,
@@ -238,7 +215,6 @@ mod tests {
         assert_eq!(json["type"], "connect");
         assert_eq!(json["chainId"], 1);
         assert!(json.get("id").is_some());
-        assert!(json.get("createdAt").is_some());
         assert!(json.get("address").is_none());
     }
 

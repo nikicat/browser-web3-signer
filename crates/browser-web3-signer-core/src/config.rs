@@ -16,7 +16,7 @@ pub struct Port(NonZeroU16);
 impl Port {
     /// Construct from a non-zero port number.
     pub const fn new(port: NonZeroU16) -> Self {
-        Port(port)
+        Self(port)
     }
 
     /// Construct from a raw `u16`, returning `None` for `0`.
@@ -39,8 +39,8 @@ impl fmt::Display for Port {
 impl FromStr for Port {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let n: u16 = s.parse().map_err(|_| format!("invalid port {s:?}"))?;
-        Port::try_new(n).ok_or_else(|| "port must be non-zero".to_string())
+        let n: u16 = s.parse().map_err(|e| format!("invalid port {s:?}: {e}"))?;
+        Self::try_new(n).ok_or_else(|| "port must be non-zero".to_owned())
     }
 }
 

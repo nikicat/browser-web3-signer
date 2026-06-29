@@ -11,21 +11,21 @@ mod tron;
 use clap::{Args, Parser, Subcommand};
 
 /// Shared CLI context derived from the global options.
-pub struct CliContext {
+pub(crate) struct CliContext {
     /// Output format.
-    pub output: OutputFormat,
+    pub(crate) output: OutputFormat,
     /// How to open the approval URL.
-    pub open: OpenMode,
+    pub(crate) open: OpenMode,
 }
 
 /// A CLI argument that must be valid JSON. Parsed and validated when the argument is read, so a
 /// malformed `--params` fails at the boundary rather than deep in a request builder.
 #[derive(Debug, Clone)]
-pub struct JsonString(serde_json::Value);
+pub(crate) struct JsonString(serde_json::Value);
 
 impl JsonString {
     /// Consume into the parsed JSON value.
-    pub fn into_value(self) -> serde_json::Value {
+    pub(crate) fn into_value(self) -> serde_json::Value {
         self.0
     }
 }
@@ -65,7 +65,7 @@ struct GlobalOpts {
 
 /// How the CLI should present results, derived from [`GlobalOpts`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputFormat {
+pub(crate) enum OutputFormat {
     /// Human-readable lines.
     Text,
     /// A single JSON object.
@@ -74,7 +74,7 @@ pub enum OutputFormat {
 
 /// Whether and how to open the approval URL.
 #[derive(Debug, Clone)]
-pub enum OpenMode {
+pub(crate) enum OpenMode {
     /// Open in the OS default browser.
     Default,
     /// Open in a named browser.
@@ -84,7 +84,7 @@ pub enum OpenMode {
 }
 
 impl GlobalOpts {
-    fn output(&self) -> OutputFormat {
+    const fn output(&self) -> OutputFormat {
         if self.json {
             OutputFormat::Json
         } else {

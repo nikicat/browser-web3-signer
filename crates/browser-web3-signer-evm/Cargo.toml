@@ -13,7 +13,16 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
-alloy = { version = "1", default-features = false, features = ["std", "provider-http", "reqwest-rustls-tls", "contract", "rpc-types-eth"] }
+alloy = { version = "1", default-features = false, features = [
+  "std",
+  "provider-http",
+  "reqwest-rustls-tls",
+  "contract",
+  "rpc-types-eth",
+] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

@@ -3,8 +3,9 @@
 
 use std::time::Duration;
 
-use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Request, UrlKind};
+use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Request, SignerError, UrlKind};
 use serde::Serialize;
+use tokio::time;
 use uuid::Uuid;
 
 #[derive(Clone, Serialize)]
@@ -28,9 +29,9 @@ const HTML: &str = "<!doctype html><title>test</title>";
 fn dummy() -> Dummy {
     Dummy {
         id: Uuid::new_v4(),
-        kind: "sign_message".to_string(),
+        kind: "sign_message".to_owned(),
         created_at: 0,
-        message: "hello".to_string(),
+        message: "hello".to_owned(),
     }
 }
 
@@ -153,13 +154,10 @@ async fn times_out_and_clears_entry() {
     let prepared = engine.prepare(req, UrlKind::Sign).await.unwrap();
 
     // Advance virtual time past the 5-minute timeout.
-    tokio::time::advance(Duration::from_secs(5 * 60 + 1)).await;
+    time::advance(Duration::from_secs(5 * 60 + 1)).await;
 
     let err = prepared.result.await.unwrap_err();
-    assert!(matches!(
-        err,
-        browser_web3_signer_core::SignerError::Timeout(_)
-    ));
+    assert!(matches!(err, SignerError::Timeout(_)));
 
     engine.shutdown().await;
 }

@@ -1,8 +1,8 @@
-//! Chain-agnostic byte-array domain types for values that are identical across EVM and TRON:
-//! a 32-byte transaction hash and an ECDSA signature. Both are secp256k1/keccak chains, so these
-//! representations are shared; only address encoding is chain-specific.
+//! Chain-agnostic byte-array domain types shared by EVM and TRON.
 //!
-//! Stored as raw bytes (not validated strings). Hex is offered both with and without the `0x`
+//! A 32-byte transaction hash and an ECDSA signature are identical across both (secp256k1/keccak
+//! chains), so these representations live here; only address encoding is chain-specific. Values
+//! are stored as raw bytes (not validated strings). Hex is offered both with and without the `0x`
 //! prefix so each chain can render in its conventional form (EVM uses `0x…`, TRON omits it).
 
 use std::fmt;
@@ -22,7 +22,7 @@ impl HexData {
     }
 
     /// True if there are no bytes.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
@@ -60,7 +60,7 @@ pub struct TxHash([u8; 32]);
 
 impl TxHash {
     /// The raw 32 bytes.
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 
@@ -83,8 +83,8 @@ impl FromStr for TxHash {
         let bytes: [u8; 32] = bytes
             .as_slice()
             .try_into()
-            .map_err(|_| format!("invalid tx hash {s:?}: expected 32 bytes"))?;
-        Ok(TxHash(bytes))
+            .map_err(|e| format!("invalid tx hash {s:?}: expected 32 bytes ({e})"))?;
+        Ok(Self(bytes))
     }
 }
 
@@ -119,7 +119,7 @@ impl FromStr for Signature {
         if bytes.is_empty() {
             return Err(format!("invalid signature {s:?}: empty"));
         }
-        Ok(Signature(bytes))
+        Ok(Self(bytes))
     }
 }
 

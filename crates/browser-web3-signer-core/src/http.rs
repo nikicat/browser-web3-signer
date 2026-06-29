@@ -7,8 +7,6 @@
 //! - `GET  /api/health`       → `{ "status": "ok", "pendingRequests": N }`
 //! - everything else          → the embedded SPA HTML (in-page router handles `/sign/:id` etc.)
 
-use std::sync::Arc;
-
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -20,12 +18,13 @@ use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
 
 use crate::pending_store::PendingStore;
+use crate::shared::Shared;
 use crate::types::{CompleteApiRequest, PendingApiResponse, Request};
 
 /// Shared state for the HTTP handlers.
 pub struct AppState<R: Request> {
     /// The pending-request store backing this bridge.
-    pub store: Arc<PendingStore<R>>,
+    pub store: Shared<PendingStore<R>>,
     /// The embedded SPA served for any non-API GET.
     pub index_html: &'static str,
 }
@@ -33,7 +32,7 @@ pub struct AppState<R: Request> {
 impl<R: Request> Clone for AppState<R> {
     fn clone(&self) -> Self {
         Self {
-            store: self.store.clone(),
+            store: self.store.share(),
             index_html: self.index_html,
         }
     }
@@ -48,7 +47,10 @@ pub fn cors_layer() -> CorsLayer {
 }
 
 /// Build the core router (pending/complete/health + SPA fallback) for a store + embedded UI.
-pub fn build_router<R: Request>(store: Arc<PendingStore<R>>, index_html: &'static str) -> Router {
+pub fn build_router<R: Request>(
+    store: Shared<PendingStore<R>>,
+    index_html: &'static str,
+) -> Router {
     let state = AppState { store, index_html };
     Router::new()
         .route("/api/pending/:id", get(get_pending::<R>))
@@ -63,10 +65,10 @@ async fn get_pending<R: Request>(
     State(state): State<AppState<R>>,
     Path(id): Path<Uuid>,
 ) -> Response {
-    match state.store.get(id) {
-        Some(request) => Json(PendingApiResponse { request }).into_response(),
-        None => json_error(StatusCode::NOT_FOUND, "Request not found"),
-    }
+    state.store.get(id).map_or_else(
+        || json_error(StatusCode::NOT_FOUND, "Request not found"),
+        |request| Json(PendingApiResponse { request }).into_response(),
+    )
 }
 
 async fn post_complete<R: Request>(

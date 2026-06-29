@@ -40,8 +40,7 @@ pub fn default_chain_id() -> ChainId {
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|&v| v > 0)
-        .map(ChainId)
-        .unwrap_or(DEFAULT_CHAIN_ID)
+        .map_or(DEFAULT_CHAIN_ID, ChainId)
 }
 
 /// All built-in chains.
@@ -55,7 +54,7 @@ pub const CHAINS: &[ChainConfig] = &[
         block_explorer: Some("https://etherscan.io"),
     },
     ChainConfig {
-        id: ChainId(11155111),
+        id: ChainId(11_155_111),
         name: "Sepolia",
         rpc_url: "https://rpc.sepolia.org",
         symbol: "ETH",

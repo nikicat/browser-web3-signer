@@ -14,6 +14,7 @@ pub mod engine;
 pub mod errors;
 pub mod http;
 pub mod pending_store;
+pub mod shared;
 pub mod types;
 
 pub use browser::{BrowserChoice, UrlKind};
@@ -22,7 +23,8 @@ pub use config::{BindPort, DEFAULT_PORT, Port, port_from_env};
 pub use engine::{Engine, Prepared, ResultFuture};
 pub use errors::{Result, SignerError, code};
 pub use pending_store::{PendingStore, REQUEST_TIMEOUT, generate_request_id};
-pub use types::{CompleteApiRequest, PendingApiResponse, Request, RequestResult};
+pub use shared::Shared;
+pub use types::{CompleteApiRequest, PendingApiResponse, Request, RequestMeta, RequestResult};
 
 /// Re-exported so downstream crates share one `Url` type for approval URLs.
 pub use url::Url;

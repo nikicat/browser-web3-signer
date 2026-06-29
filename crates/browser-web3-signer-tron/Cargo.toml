@@ -19,3 +19,6 @@ bs58 = { version = "0.5", features = ["check"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

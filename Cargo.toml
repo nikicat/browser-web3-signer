@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/browser-web3-signer-core",
-    "crates/browser-web3-signer-evm",
-    "crates/browser-web3-signer-tron",
-    "crates/browser-web3-signer",
+  "crates/browser-web3-signer-core",
+  "crates/browser-web3-signer-evm",
+  "crates/browser-web3-signer-tron",
+  "crates/browser-web3-signer",
 ]
 
 [workspace.package]
@@ -18,7 +18,15 @@ browser-web3-signer-core = { path = "crates/browser-web3-signer-core" }
 browser-web3-signer-evm = { path = "crates/browser-web3-signer-evm" }
 browser-web3-signer-tron = { path = "crates/browser-web3-signer-tron" }
 
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "process"] }
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "macros",
+  "sync",
+  "time",
+  "signal",
+  "net",
+  "process",
+] }
 axum = "0.7"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
@@ -29,6 +37,101 @@ thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "json",
+  "rustls-tls",
+] }
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+# Catch `pub` items that aren't reachable from the crate root — pushes toward
+# `pub(crate)` where wider visibility was unintentional.
+unreachable_pub = "warn"
+# Flag redundant `crate::`/`self::` prefixes on items already in scope.
+unused_qualifications = "warn"
+# Discarding a `Drop` type with `let _ =` usually means a forgotten guard.
+let_underscore_drop = "warn"
+# Force `&Foo<'_>` over `&Foo` when `Foo` has a lifetime parameter.
+elided_lifetimes_in_paths = "warn"
+
+[workspace.lints.clippy]
+# Baseline groups.
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Specific high-signal additions.
+absolute_paths = "warn"          # forces `use` over `crate::a::b::c` chains
+needless_pass_by_value = "warn"
+redundant_clone = "warn"
+explicit_iter_loop = "warn"
+explicit_into_iter_loop = "warn"
+unused_async = "warn"
+# Restriction picks — never want these in committed code.
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+mem_forget = "warn"
+let_underscore_must_use = "warn"
+clone_on_ref_ptr = "warn"        # `Arc::clone(&x)` over `x.clone()` — visible ref bumps
+str_to_string = "warn"
+mod_module_files = "warn"        # enforce `foo.rs` + `foo/` over `mod.rs`
+# Error-handling discipline.
+try_err = "warn"
+map_err_ignore = "warn"
+unwrap_in_result = "warn"
+panic_in_result_fn = "warn"
+# Code-hygiene idioms.
+manual_assert = "warn"
+if_then_some_else_none = "warn"
+format_push_string = "warn"
+pathbuf_init_then_push = "warn"
+verbose_file_reads = "warn"
+unnecessary_self_imports = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+redundant_type_annotations = "warn"
+as_underscore = "warn"
+string_add = "warn"
+# Type / API hazards.
+mutex_atomic = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+assertions_on_constants = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets = "warn"
+infinite_loop = "warn"
+exit = "warn"
+# Style / hygiene.
+shadow_same = "warn"
+use_debug = "warn"
+unneeded_field_pattern = "warn"
+needless_raw_strings = "warn"
+# Correctness-leaning restriction picks.
+mixed_read_write_in_expression = "warn"
+filetype_is_file = "warn"
+path_buf_push_overwrite = "warn"
+# Pragmatic allows for a pre-publish, multi-dependency workspace. Documented so
+# each is a deliberate choice, not an oversight:
+# - duplicate transitive crate versions are unavoidable with alloy/axum/reqwest;
+cargo_common_metadata = "allow"   # keywords/categories/repository added at publish time
+multiple_crate_versions = "allow"
+# - we document errors narratively rather than with per-fn `# Errors` sections;
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# - chain-prefixed type names (EvmRequest, TronSigner) are intentional.
+module_name_repetitions = "allow"
+# - `#[must_use]` on every getter/builder is noise; we add it where it matters.
+must_use_candidate = "allow"
+# - doc_markdown false-positives on product names (TronLink, MetaMask, viem, …).
+doc_markdown = "allow"
+# - future_not_send is low-signal here: futures are awaited inline, not spawned
+#   across threads in a way that needs `Send`.
+future_not_send = "allow"
+# - significant_drop_tightening is finicky about the lazily-started server mutex
+#   guard, which is intentionally held across the bind to avoid a start race.
+significant_drop_tightening = "allow"
+# - redundant_pub_crate directly conflicts with rustc's unreachable_pub for items
+#   in a binary's private modules; we keep `pub(crate)` and silence this one.
+redundant_pub_crate = "allow"

@@ -72,12 +72,12 @@ impl TronSigner {
     }
 
     /// The default network.
-    pub fn default_network(&self) -> TronNetwork {
+    pub const fn default_network(&self) -> TronNetwork {
         self.default_network
     }
 
     /// The underlying engine (used by the CLI to print the approval URL before opening).
-    pub fn engine(&self) -> &Engine<TronRequest> {
+    pub const fn engine(&self) -> &Engine<TronRequest> {
         &self.engine
     }
 
@@ -185,12 +185,11 @@ impl TronSigner {
             .await
             .map_err(|e| SignerError::Rpc(e.to_string()))?;
 
-        let sun = resp.get("balance").and_then(|b| b.as_u64()).unwrap_or(0);
-        let symbol = Symbol::new(
-            config::network_config(network)
-                .map(|n| n.symbol)
-                .unwrap_or("TRX"),
-        );
+        let sun = resp
+            .get("balance")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let symbol = Symbol::new(config::network_config(network).map_or("TRX", |n| n.symbol));
         Ok(BalanceResult {
             amount: Sun(sun),
             symbol,
@@ -215,10 +214,13 @@ impl TronSigner {
         let decimals_hex = self
             .trigger_constant(host, contract, "decimals()", "")
             .await?;
-        let symbol = match self.trigger_constant(host, contract, "symbol()", "").await {
-            Ok(hex) => Symbol::new(decode_abi_string(&hex)),
-            Err(_) => Symbol::new(""),
-        };
+        let symbol = self
+            .trigger_constant(host, contract, "symbol()", "")
+            .await
+            .map_or_else(
+                |_| Symbol::new(""),
+                |hex| Symbol::new(decode_abi_string(&hex)),
+            );
 
         let raw = U256::from_str_radix(raw_hex.trim_start_matches("0x"), 16)
             .map_err(|e| SignerError::Rpc(format!("bad balanceOf result: {e}")))?;
@@ -261,7 +263,7 @@ impl TronSigner {
             .and_then(|r| r.as_array())
             .and_then(|a| a.first())
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+            .map(ToOwned::to_owned)
             .ok_or_else(|| SignerError::Rpc(format!("triggerconstantcontract: no result ({resp})")))
     }
 }
@@ -318,6 +320,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloy_primitives::hex;
+
     use super::*;
 
     #[test]
@@ -334,12 +338,7 @@ mod tests {
     #[test]
     fn abi_string_decodes() {
         // offset(32) + length(5) + "USDTT" padded.
-        let hex = format!(
-            "{:064x}{:064x}{:0<64}",
-            32u64,
-            5u64,
-            alloy_primitives::hex::encode("USDTT")
-        );
+        let hex = format!("{:064x}{:064x}{:0<64}", 32u64, 5u64, hex::encode("USDTT"));
         assert_eq!(decode_abi_string(&hex), "USDTT");
     }
 }

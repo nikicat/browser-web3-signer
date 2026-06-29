@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use browser_web3_signer_core::{BindPort, BrowserChoice};
+use browser_web3_signer_core::{BindPort, BrowserChoice, Url};
 use browser_web3_signer_evm::{
     Address, CallData, ChainId, EvmRequest, EvmSigner, SendTransactionParams, Signature, TxHash,
     TypedData, Wei, config,
@@ -15,7 +15,7 @@ use crate::{CliContext, OpenMode, OutputFormat, flow, output};
 
 /// EVM subcommands.
 #[derive(Debug, Subcommand)]
-pub enum EvmCommand {
+pub(crate) enum EvmCommand {
     /// Connect a wallet and print its address.
     Connect {
         /// Chain id (defaults to env / 1).
@@ -109,53 +109,153 @@ struct TypedDataFile {
     message: serde_json::Value,
 }
 
-fn make_signer(ctx: &CliContext) -> EvmSigner {
-    let browser = match &ctx.open {
-        OpenMode::Named(name) => BrowserChoice::Named(name.clone()),
-        _ => BrowserChoice::Default,
-    };
-    EvmSigner::new(
-        BindPort::Preferred(config::port()),
-        config::default_chain_id(),
-        browser,
-    )
+/// Owns the signer plus presentation context for one CLI invocation, so each subcommand is a
+/// method rather than a free function threading `(&signer, &ctx)` everywhere. (The signer stays
+/// in the library crate and is presentation-free; the stdout/JSON formatting lives here.)
+struct EvmCli {
+    signer: EvmSigner,
+    ctx: CliContext,
 }
 
-/// Register the request, surface the approval URL, open the browser unless `--print`, await the
-/// wallet's response, and parse it into the expected domain type `T` (e.g. [`Address`],
-/// [`TxHash`], [`Signature`]). The type the caller binds the result to *is* the documentation of
-/// what this returns — there is no untyped intermediate string at the call site.
-async fn approve<T>(
-    signer: &EvmSigner,
-    ctx: &CliContext,
-    request: EvmRequest,
-    what: &str,
-) -> Result<T>
-where
-    T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
-{
-    let prepared = signer.prepare(request).await?;
-    flow::await_signed(prepared, &ctx.open, signer, what).await
-}
+impl EvmCli {
+    fn new(ctx: CliContext) -> Self {
+        let browser = match &ctx.open {
+            OpenMode::Named(name) => BrowserChoice::Named(name.clone()),
+            _ => BrowserChoice::Default,
+        };
+        let signer = EvmSigner::new(
+            BindPort::Preferred(config::port()),
+            config::default_chain_id(),
+            browser,
+        );
+        Self { signer, ctx }
+    }
 
-/// Resolve the effective chain id (explicit flag, else the signer default).
-fn chain_or_default(signer: &EvmSigner, chain: Option<ChainId>) -> ChainId {
-    chain.unwrap_or(signer.default_chain_id())
-}
+    /// The effective chain id (explicit flag, else the signer default).
+    fn chain_or_default(&self, chain: Option<ChainId>) -> ChainId {
+        chain.unwrap_or_else(|| self.signer.default_chain_id())
+    }
 
-/// Run an EVM subcommand.
-pub async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
-    let signer = make_signer(&ctx);
-    match cmd {
-        EvmCommand::Connect { chain, address } => {
-            let req = EvmRequest::connect(Some(chain_or_default(&signer, chain)), address);
-            let addr: Address = approve(&signer, &ctx, req, "address").await?;
-            match ctx.output {
-                OutputFormat::Text => println!("Connected: {addr}"),
-                OutputFormat::Json => output::json(&json!({ "address": addr.to_string() })),
-            }
+    /// Register the request, surface the approval URL, open the browser unless `--print`, await
+    /// the wallet's response, and parse it into the expected domain type `T`. The type the caller
+    /// binds the result to documents what the operation returns.
+    async fn approve<T>(&self, request: EvmRequest, what: &str) -> Result<T>
+    where
+        T: std::str::FromStr,
+        <T as std::str::FromStr>::Err: std::fmt::Display,
+    {
+        let prepared = self.signer.prepare(request).await?;
+        flow::await_signed(prepared, &self.ctx.open, &self.signer, what).await
+    }
+
+    async fn connect(&self, chain: Option<ChainId>, address: Option<Address>) -> Result<()> {
+        let req = EvmRequest::connect(Some(self.chain_or_default(chain)), address);
+        let addr: Address = self.approve(req, "address").await?;
+        match self.ctx.output {
+            OutputFormat::Text => println!("Connected: {addr}"),
+            OutputFormat::Json => output::json(&json!({ "address": addr.to_string() })),
         }
+        Ok(())
+    }
+
+    async fn send_transaction(
+        &self,
+        chain_id: ChainId,
+        params: SendTransactionParams,
+    ) -> Result<()> {
+        let req = EvmRequest::send_transaction(params);
+        let hash: TxHash = self.approve(req, "tx hash").await?;
+        let explorer = config::chain_config(chain_id)
+            .and_then(|c| c.block_explorer)
+            .and_then(|base| Url::parse(&format!("{base}/tx/{hash}")).ok());
+        match self.ctx.output {
+            OutputFormat::Text => {
+                println!("Tx hash: {hash}");
+                if let Some(url) = &explorer {
+                    println!("Explorer: {url}");
+                }
+            }
+            OutputFormat::Json => output::json(&json!({
+                "txHash": hash.to_string(),
+                "explorer": explorer,
+            })),
+        }
+        Ok(())
+    }
+
+    async fn sign_typed_data(
+        &self,
+        file: &std::path::Path,
+        address: Option<Address>,
+        chain: Option<ChainId>,
+    ) -> Result<()> {
+        let contents = std::fs::read_to_string(file)
+            .with_context(|| format!("reading typed-data file {}", file.display()))?;
+        let parsed: TypedDataFile =
+            serde_json::from_str(&contents).context("parsing typed-data JSON")?;
+        let typed = TypedData {
+            domain: parsed.domain,
+            types: parsed.types,
+            primary_type: parsed.primary_type,
+            message: parsed.message,
+        };
+        let req = EvmRequest::sign_typed_data(typed, address, Some(self.chain_or_default(chain)));
+        self.sign(req).await
+    }
+
+    /// Shared tail for `sign_message` / `sign_typed_data`: await a signature and emit it.
+    async fn sign(&self, req: EvmRequest) -> Result<()> {
+        let sig: Signature = self.approve(req, "signature").await?;
+        match self.ctx.output {
+            OutputFormat::Text => println!("Signature: {sig}"),
+            OutputFormat::Json => output::json(&json!({ "signature": sig.to_string() })),
+        }
+        Ok(())
+    }
+
+    async fn get_balance(&self, address: Address, chain: Option<ChainId>) -> Result<()> {
+        let res = self.signer.get_balance(address, chain).await?;
+        match self.ctx.output {
+            OutputFormat::Text => {
+                println!("Balance: {} {}", res.to_decimal_string(), res.symbol);
+                println!("Wei:     {}", res.amount);
+            }
+            OutputFormat::Json => output::json(&json!({
+                "balance": res.to_decimal_string(),
+                "wei": res.amount.to_string(),
+                "symbol": res.symbol.to_string(),
+            })),
+        }
+        Ok(())
+    }
+
+    async fn get_token_balance(
+        &self,
+        token: Address,
+        address: Address,
+        chain: Option<ChainId>,
+    ) -> Result<()> {
+        let res = self.signer.get_token_balance(token, address, chain).await?;
+        match self.ctx.output {
+            OutputFormat::Text => {
+                println!("Balance: {} {}", res.amount.to_decimal_string(), res.symbol);
+            }
+            OutputFormat::Json => output::json(&json!({
+                "balance": res.amount.to_decimal_string(),
+                "raw": res.amount.raw().to_string(),
+                "symbol": res.symbol.to_string(),
+                "decimals": res.amount.decimals().get(),
+            })),
+        }
+        Ok(())
+    }
+}
+
+/// Run an EVM subcommand by dispatching to the matching [`EvmCli`] method.
+pub(crate) async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
+    let cli = EvmCli::new(ctx);
+    match cmd {
+        EvmCommand::Connect { chain, address } => cli.connect(chain, address).await,
         EvmCommand::SendTransaction {
             to,
             from,
@@ -166,8 +266,8 @@ pub async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
             max_fee_per_gas,
             max_priority_fee_per_gas,
         } => {
-            let chain_id = chain_or_default(&signer, chain);
-            let req = EvmRequest::send_transaction(SendTransactionParams {
+            let chain_id = cli.chain_or_default(chain);
+            let params = SendTransactionParams {
                 to,
                 from,
                 value,
@@ -176,93 +276,27 @@ pub async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
                 gas_limit,
                 max_fee_per_gas,
                 max_priority_fee_per_gas,
-            });
-            let hash: TxHash = approve(&signer, &ctx, req, "tx hash").await?;
-            let explorer = config::chain_config(chain_id)
-                .and_then(|c| c.block_explorer)
-                .map(|base| format!("{base}/tx/{hash}"));
-            match ctx.output {
-                OutputFormat::Text => {
-                    println!("Tx hash: {hash}");
-                    if let Some(url) = &explorer {
-                        println!("Explorer: {url}");
-                    }
-                }
-                OutputFormat::Json => output::json(&json!({
-                    "txHash": hash.to_string(),
-                    "explorer": explorer,
-                })),
-            }
+            };
+            cli.send_transaction(chain_id, params).await
         }
         EvmCommand::SignMessage {
             message,
             address,
             chain,
         } => {
-            let req =
-                EvmRequest::sign_message(message, address, Some(chain_or_default(&signer, chain)));
-            let sig: Signature = approve(&signer, &ctx, req, "signature").await?;
-            emit_signature(&ctx, &sig);
+            let req = EvmRequest::sign_message(message, address, Some(cli.chain_or_default(chain)));
+            cli.sign(req).await
         }
         EvmCommand::SignTypedData {
             file,
             address,
             chain,
-        } => {
-            let contents = std::fs::read_to_string(&file)
-                .with_context(|| format!("reading typed-data file {}", file.display()))?;
-            let parsed: TypedDataFile =
-                serde_json::from_str(&contents).context("parsing typed-data JSON")?;
-            let typed = TypedData {
-                domain: parsed.domain,
-                types: parsed.types,
-                primary_type: parsed.primary_type,
-                message: parsed.message,
-            };
-            let req =
-                EvmRequest::sign_typed_data(typed, address, Some(chain_or_default(&signer, chain)));
-            let sig: Signature = approve(&signer, &ctx, req, "signature").await?;
-            emit_signature(&ctx, &sig);
-        }
-        EvmCommand::GetBalance { address, chain } => {
-            let res = signer.get_balance(address, chain).await?;
-            match ctx.output {
-                OutputFormat::Text => {
-                    println!("Balance: {} {}", res.to_decimal_string(), res.symbol);
-                    println!("Wei:     {}", res.amount);
-                }
-                OutputFormat::Json => output::json(&json!({
-                    "balance": res.to_decimal_string(),
-                    "wei": res.amount.to_string(),
-                    "symbol": res.symbol.to_string(),
-                })),
-            }
-        }
+        } => cli.sign_typed_data(&file, address, chain).await,
+        EvmCommand::GetBalance { address, chain } => cli.get_balance(address, chain).await,
         EvmCommand::GetTokenBalance {
             token,
             address,
             chain,
-        } => {
-            let res = signer.get_token_balance(token, address, chain).await?;
-            match ctx.output {
-                OutputFormat::Text => {
-                    println!("Balance: {} {}", res.amount.to_decimal_string(), res.symbol);
-                }
-                OutputFormat::Json => output::json(&json!({
-                    "balance": res.amount.to_decimal_string(),
-                    "raw": res.amount.raw().to_string(),
-                    "symbol": res.symbol.to_string(),
-                    "decimals": res.amount.decimals().get(),
-                })),
-            }
-        }
-    }
-    Ok(())
-}
-
-fn emit_signature(ctx: &CliContext, sig: &Signature) {
-    match ctx.output {
-        OutputFormat::Text => println!("Signature: {sig}"),
-        OutputFormat::Json => output::json(&json!({ "signature": sig.to_string() })),
+        } => cli.get_token_balance(token, address, chain).await,
     }
 }

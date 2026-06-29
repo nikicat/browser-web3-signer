@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 use alloy_primitives::{
     U256, hex,
-    utils::{UnitsError, format_units},
+    utils::{UnitsError, format_units, parse_units},
 };
 use serde::{Serialize, Serializer};
 
@@ -26,11 +26,11 @@ pub enum TronNetwork {
 
 impl TronNetwork {
     /// The lowercase network id.
-    pub fn id(self) -> &'static str {
+    pub const fn id(self) -> &'static str {
         match self {
-            TronNetwork::Mainnet => "mainnet",
-            TronNetwork::Shasta => "shasta",
-            TronNetwork::Nile => "nile",
+            Self::Mainnet => "mainnet",
+            Self::Shasta => "shasta",
+            Self::Nile => "nile",
         }
     }
 }
@@ -45,9 +45,9 @@ impl FromStr for TronNetwork {
     type Err = DomainParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
-            "mainnet" => Ok(TronNetwork::Mainnet),
-            "shasta" => Ok(TronNetwork::Shasta),
-            "nile" => Ok(TronNetwork::Nile),
+            "mainnet" => Ok(Self::Mainnet),
+            "shasta" => Ok(Self::Shasta),
+            "nile" => Ok(Self::Nile),
             _ => Err(DomainParseError::new(
                 "tron network",
                 s,
@@ -70,7 +70,7 @@ pub struct TronAddress([u8; 21]);
 
 impl TronAddress {
     /// The raw 21 bytes (`0x41` prefix + 20-byte body).
-    pub fn as_bytes(&self) -> &[u8; 21] {
+    pub const fn as_bytes(&self) -> &[u8; 21] {
         &self.0
     }
 
@@ -100,10 +100,9 @@ impl FromStr for TronAddress {
             .with_check(None)
             .into_vec()
             .map_err(|e| DomainParseError::new("tron address", s, e))?;
-        let bytes: [u8; 21] = decoded
-            .as_slice()
-            .try_into()
-            .map_err(|_| DomainParseError::new("tron address", s, "expected 21-byte payload"))?;
+        let bytes: [u8; 21] = decoded.as_slice().try_into().map_err(|e| {
+            DomainParseError::new("tron address", s, format!("expected 21-byte payload: {e}"))
+        })?;
         if bytes[0] != 0x41 {
             return Err(DomainParseError::new(
                 "tron address",
@@ -111,7 +110,7 @@ impl FromStr for TronAddress {
                 "expected 0x41 prefix",
             ));
         }
-        Ok(TronAddress(bytes))
+        Ok(Self(bytes))
     }
 }
 
@@ -133,7 +132,7 @@ pub struct Sun(pub u64);
 
 impl Sun {
     /// The raw SUN value.
-    pub fn get(self) -> u64 {
+    pub const fn get(self) -> u64 {
         self.0
     }
 
@@ -145,7 +144,7 @@ impl Sun {
 
 impl From<u64> for Sun {
     fn from(v: u64) -> Self {
-        Sun(v)
+        Self(v)
     }
 }
 
@@ -182,7 +181,7 @@ pub struct EnergyLimit(pub u64);
 
 impl EnergyLimit {
     /// The raw value.
-    pub fn get(self) -> u64 {
+    pub const fn get(self) -> u64 {
         self.0
     }
 }
@@ -223,11 +222,11 @@ impl Percentage {
                 "must be 0-100",
             ));
         }
-        Ok(Percentage(value))
+        Ok(Self(value))
     }
 
     /// The raw value (0–100).
-    pub fn get(self) -> u8 {
+    pub const fn get(self) -> u8 {
         self.0
     }
 }
@@ -244,7 +243,7 @@ impl FromStr for Percentage {
         let value = s
             .parse::<u8>()
             .map_err(|e| DomainParseError::new("percentage", s, e))?;
-        Percentage::new(value)
+        Self::new(value)
     }
 }
 
@@ -260,7 +259,7 @@ pub struct Decimals(pub u8);
 
 impl Decimals {
     /// The raw decimal count.
-    pub fn get(self) -> u8 {
+    pub const fn get(self) -> u8 {
         self.0
     }
 }
@@ -278,7 +277,7 @@ pub struct Symbol(String);
 impl Symbol {
     /// Wrap a symbol string.
     pub fn new(s: impl Into<String>) -> Self {
-        Symbol(s.into())
+        Self(s.into())
     }
 
     /// The symbol as a string slice.
@@ -287,7 +286,7 @@ impl Symbol {
     }
 
     /// True if the contract reported no symbol.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 }
@@ -308,17 +307,17 @@ pub struct TokenAmount {
 
 impl TokenAmount {
     /// Build from a raw integer and decimal scale.
-    pub fn new(raw: U256, decimals: Decimals) -> Self {
-        TokenAmount { raw, decimals }
+    pub const fn new(raw: U256, decimals: Decimals) -> Self {
+        Self { raw, decimals }
     }
 
     /// The raw, unscaled value.
-    pub fn raw(self) -> U256 {
+    pub const fn raw(self) -> U256 {
         self.raw
     }
 
     /// The token's decimal scale.
-    pub fn decimals(self) -> Decimals {
+    pub const fn decimals(self) -> Decimals {
         self.decimals
     }
 
@@ -336,7 +335,7 @@ impl fmt::Display for TokenAmount {
 
 /// Convert a TRX decimal string to SUN, for CLI ergonomics.
 pub fn trx_to_sun(value: &str) -> Result<Sun, UnitsError> {
-    let units = alloy_primitives::utils::parse_units(value, TRX_DECIMALS)?;
+    let units = parse_units(value, TRX_DECIMALS)?;
     let raw: U256 = units.get_absolute();
     Ok(Sun(raw.to::<u64>()))
 }
@@ -353,7 +352,7 @@ impl DomainParseError {
     fn new(kind: &'static str, input: &str, source: impl fmt::Display) -> Self {
         Self {
             kind,
-            input: input.to_string(),
+            input: input.to_owned(),
             source: source.to_string(),
         }
     }
@@ -361,7 +360,7 @@ impl DomainParseError {
 
 impl fmt::Display for DomainParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid {} {:?}: {}", self.kind, self.input, self.source)
+        write!(f, "invalid {} '{}': {}", self.kind, self.input, self.source)
     }
 }
 

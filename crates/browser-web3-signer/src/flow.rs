@@ -17,7 +17,7 @@ use crate::output;
 
 /// Something that can open an approval URL in the user's browser. Implemented by each chain's
 /// signer; passed to the flow helpers so they don't depend on a bare closure.
-pub trait ApprovalOpener {
+pub(crate) trait ApprovalOpener {
     /// Open `url` according to the signer's configured browser choice.
     fn open_url(&self, url: &Url);
 }
@@ -35,25 +35,24 @@ impl ApprovalOpener for TronSigner {
 }
 
 /// Surface the URL, open it (unless `--print`), and await the raw wallet response string.
-pub async fn await_raw(
+pub(crate) async fn await_raw(
     prepared: Prepared,
     open: &OpenMode,
     opener: &dyn ApprovalOpener,
 ) -> Result<String> {
     output::progress(format!("Approval URL: {}", prepared.url));
-    match open {
-        OpenMode::PrintOnly => output::progress("(--print) open the URL above to approve"),
-        _ => {
-            opener.open_url(&prepared.url);
-            output::progress("Waiting for approval in your browser…");
-        }
+    if matches!(open, OpenMode::PrintOnly) {
+        output::progress("(--print) open the URL above to approve");
+    } else {
+        opener.open_url(&prepared.url);
+        output::progress("Waiting for approval in your browser…");
     }
     Ok(prepared.result.await?)
 }
 
 /// Like [`await_raw`], but parse the response into the expected domain type `T`. The type the
 /// caller binds the result to documents what the operation returns.
-pub async fn await_signed<T>(
+pub(crate) async fn await_signed<T>(
     prepared: Prepared,
     open: &OpenMode,
     opener: &dyn ApprovalOpener,

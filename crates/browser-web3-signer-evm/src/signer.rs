@@ -74,13 +74,13 @@ impl EvmSigner {
     }
 
     /// The default chain id.
-    pub fn default_chain_id(&self) -> ChainId {
+    pub const fn default_chain_id(&self) -> ChainId {
         self.default_chain_id
     }
 
     /// The underlying engine (used by the CLI to print the approval URL before opening, and by
     /// the daemon to extend the router).
-    pub fn engine(&self) -> &Engine<EvmRequest> {
+    pub const fn engine(&self) -> &Engine<EvmRequest> {
         &self.engine
     }
 
@@ -162,11 +162,7 @@ impl EvmSigner {
             .get_balance(address.inner())
             .await
             .map_err(|e| SignerError::Rpc(e.to_string()))?;
-        let symbol = Symbol::new(
-            config::chain_config(chain_id)
-                .map(|c| c.symbol)
-                .unwrap_or("ETH"),
-        );
+        let symbol = Symbol::new(config::chain_config(chain_id).map_or("ETH", |c| c.symbol));
         Ok(BalanceResult {
             amount: Wei(wei),
             symbol,

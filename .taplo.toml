@@ -1,0 +1,4 @@
+# Restrict taplo (fmt + lint) to repo-owned TOML. Cargo's git-dep cache under
+# `target/` and the scratch worktrees under `.claude/` are out of scope —
+# formatting them just creates churn the pre-commit hook then rejects.
+exclude = ["target/**", ".claude/**"]

@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::types::{Request, RequestResult};
 
 /// Default timeout for pending requests (5 minutes).
-pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+pub const REQUEST_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Generate a fresh request id.
 pub fn generate_request_id() -> Uuid {
@@ -72,7 +72,7 @@ impl<R: Request> PendingStore<R> {
         match entry {
             Some(entry) => {
                 // Receiver may have been dropped (caller gave up); ignore send failure.
-                let _ = entry.tx.send(result);
+                entry.tx.send(result).ok();
                 true
             }
             None => false,

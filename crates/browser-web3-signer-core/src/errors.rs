@@ -46,13 +46,13 @@ pub enum SignerError {
 impl SignerError {
     /// True if this error carries the `WRONG_WALLET_ADDRESS` code anywhere it applies.
     pub fn is_wrong_wallet_address(&self) -> bool {
-        matches!(self, SignerError::Rejected { code: Some(c), .. } if c == code::WRONG_WALLET_ADDRESS)
+        matches!(self, Self::Rejected { code: Some(c), .. } if c == code::WRONG_WALLET_ADDRESS)
     }
 
     /// The discriminating code, if any.
     pub fn code(&self) -> Option<&str> {
         match self {
-            SignerError::Rejected { code, .. } => code.as_deref(),
+            Self::Rejected { code, .. } => code.as_deref(),
             _ => None,
         }
     }

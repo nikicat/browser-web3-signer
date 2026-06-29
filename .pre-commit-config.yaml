@@ -1,0 +1,40 @@
+# Formatting + lint gate that mirrors CI. cargo clippy is included so lints
+# can't slip past local commits. Warm runs are fast (incremental cache); cold
+# runs pay a full build after `cargo clean`.
+#
+# Install once per clone:  prek install
+# Run ad-hoc on everything: prek run --all-files
+# Skip a single commit:    git commit --no-verify
+#
+# `system` language: prek invokes the host's cargo/taplo rather than pulling
+# its own toolchain. rust-toolchain.toml pins the channel for both local and CI.
+repos:
+  - repo: local
+    hooks:
+      - id: rustfmt
+        name: rustfmt
+        entry: cargo fmt --all -- --check
+        language: system
+        pass_filenames: false
+        files: \.rs$
+
+      - id: taplo-fmt
+        name: taplo fmt
+        entry: taplo fmt --check
+        language: system
+        pass_filenames: false
+        files: \.toml$
+
+      - id: taplo-lint
+        name: taplo lint
+        entry: taplo lint
+        language: system
+        pass_filenames: false
+        files: \.toml$
+
+      - id: clippy
+        name: clippy
+        entry: cargo clippy --all-targets --all-features --locked -- -D warnings
+        language: system
+        pass_filenames: false
+        files: \.(rs|toml)$

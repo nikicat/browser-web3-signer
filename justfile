@@ -1,0 +1,58 @@
+# Project recipes. Run `just` to list, `just <recipe>` to invoke.
+#
+# Coverage uses cargo-llvm-cov (LLVM source-based coverage).
+# Install once:  cargo install cargo-llvm-cov   (or: pacman -S cargo-llvm-cov)
+
+# Drop CLI glue from the coverage report — main.rs / output.rs / flow.rs are
+# thin presentation wrappers around the library crates.
+ignore_regex := '(crates/browser-web3-signer/src/(main|output|flow)\.rs)'
+
+# List available recipes.
+default:
+    @just --list
+
+# Everything CI runs, in order. Use before pushing.
+ci: fmt-check toml-check lint build test
+
+# Run the test suite (matches CI).
+test:
+    cargo test --all-features --locked
+
+# Build all targets (matches CI).
+build:
+    cargo build --all-targets --locked
+
+# Format Rust + TOML in place.
+fmt:
+    cargo fmt --all
+    taplo fmt
+
+# Check formatting without writing (matches CI).
+fmt-check:
+    cargo fmt --all -- --check
+
+# Check + lint TOML (matches CI).
+toml-check:
+    taplo fmt --check
+    taplo lint
+
+# Clippy with warnings denied (matches CI).
+lint:
+    cargo clippy --all-targets --all-features --locked -- -D warnings
+
+# Coverage summary in the terminal.
+coverage:
+    cargo llvm-cov --all-features --ignore-filename-regex '{{ignore_regex}}'
+
+# HTML report at target/llvm-cov/html/index.html.
+coverage-html:
+    cargo llvm-cov --all-features --html --ignore-filename-regex '{{ignore_regex}}'
+
+# lcov.info for Codecov upload or external tools.
+coverage-lcov:
+    cargo llvm-cov --all-features --lcov --output-path lcov.info \
+        --ignore-filename-regex '{{ignore_regex}}'
+
+# Drop cached coverage artifacts.
+coverage-clean:
+    cargo llvm-cov clean --workspace

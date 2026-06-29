@@ -16,6 +16,30 @@ pub trait Request: Serialize + Clone + Send + Sync + 'static {
     fn id(&self) -> Uuid;
 }
 
+/// Metadata common to every chain request, flattened into its JSON as `{ "id": "<uuid>" }`.
+///
+/// Chain request enums embed this via `#[serde(flatten)]` so there is one source of truth for
+/// per-request fields shared across chains (and a place to grow, e.g. a daemon app label).
+#[derive(Debug, Clone, Serialize)]
+pub struct RequestMeta {
+    /// Request id (UUID).
+    pub id: Uuid,
+}
+
+impl RequestMeta {
+    /// Build metadata with a fresh request id.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { id: Uuid::new_v4() }
+    }
+}
+
+impl Default for RequestMeta {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Result of a signing request, mirroring the `RequestResult` discriminated union.
 ///
 /// Serializes to `{ "success": true, "result": "..." }` or
@@ -45,7 +69,7 @@ pub enum RequestResult {
 impl RequestResult {
     /// Build a success result.
     pub fn success(result: impl Into<String>) -> Self {
-        RequestResult::Success {
+        Self::Success {
             success: SuccessFlag,
             result: result.into(),
         }
@@ -53,7 +77,7 @@ impl RequestResult {
 
     /// Build an error result.
     pub fn error(error: impl Into<String>, code: Option<String>) -> Self {
-        RequestResult::Error {
+        Self::Error {
             success: SuccessFlag,
             error: error.into(),
             code,
@@ -74,13 +98,12 @@ impl<const B: bool> Serialize for SuccessFlag<B> {
 
 impl<'de, const B: bool> Deserialize<'de> for SuccessFlag<B> {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
         let v = bool::deserialize(d)?;
         if v == B {
-            Ok(SuccessFlag)
+            Ok(Self)
         } else {
-            Err(serde::de::Error::custom(format!(
-                "expected success={B}, got {v}"
-            )))
+            Err(D::Error::custom(format!("expected success={B}, got {v}")))
         }
     }
 }
@@ -104,10 +127,10 @@ pub struct CompleteApiRequest {
 impl From<CompleteApiRequest> for RequestResult {
     fn from(body: CompleteApiRequest) -> Self {
         if body.success {
-            RequestResult::success(body.result.unwrap_or_default())
+            Self::success(body.result.unwrap_or_default())
         } else {
-            RequestResult::error(
-                body.error.unwrap_or_else(|| "Unknown error".to_string()),
+            Self::error(
+                body.error.unwrap_or_else(|| "Unknown error".to_owned()),
                 body.code,
             )
         }
