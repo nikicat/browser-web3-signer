@@ -22,6 +22,7 @@ pub use bytes::{HexData, Signature, TxHash};
 pub use config::{BindPort, DEFAULT_PORT, Port, port_from_env};
 pub use engine::{Engine, Prepared, ResultFuture};
 pub use errors::{Result, SignerError, code};
+pub use http::build_router_with;
 pub use pending_store::{PendingStore, REQUEST_TIMEOUT, generate_request_id};
 pub use shared::Shared;
 pub use types::{CompleteApiRequest, PendingApiResponse, Request, RequestMeta, RequestResult};

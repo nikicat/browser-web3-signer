@@ -53,6 +53,12 @@ in-page router dispatches `/connect/:id` and `/sign/:id`). CORS mirrors the refe
 **byte-compatible with the reference UI**, so the ported HTML works unchanged and future
 TS adaptors interoperate.
 
+`build_router_with` / `Engine::start_with` add an **extension point**: a caller can merge its
+own routes onto the core bridge, sharing the same `PendingStore`. Both the planned daemon (its
+`/api/v1` control API + SSE) and the e2e test harness (`/api/test/*`) hook in here rather than
+forking the router. The merged routes carry their own state and middleware; the core CORS layer
+applies only to the core routes.
+
 ## Core abstractions (`browser-web3-signer-core`)
 
 - **`PendingStore<R>`** — `Mutex<HashMap<Uuid, (request, oneshot::Sender)>>`. `create`
@@ -160,5 +166,7 @@ pre-publish, multi-dependency workspace.
   → skip reconnect), and SSE to a persistent connected tab.
 - **Phase 5 — TypeScript adaptors.** A viem `CustomTransport` + hybrid account and an ethers
   `Signer`/`Provider`, both clients of the daemon API.
-- **Phase 6 — tests & docs.** Integration tests, an optional Playwright mock-wallet e2e
-  against the Rust bridge, and expanded docs.
+- **Phase 6 — tests & docs.** Integration tests and a Playwright mock-wallet e2e against the
+  Rust bridge (✅ EVM, in [`tests/e2e-browser`](tests/e2e-browser); TRON pending), plus expanded
+  docs. The e2e suite drives the real bridge through a feature-gated harness binary that mounts
+  test-only routes via the `start_with` extension point above — the same hook the daemon reuses.

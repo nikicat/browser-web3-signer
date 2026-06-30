@@ -1160,6 +1160,7 @@ name = "browser-web3-signer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "browser-web3-signer-core",
  "browser-web3-signer-evm",
  "browser-web3-signer-tron",
@@ -1169,6 +1170,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

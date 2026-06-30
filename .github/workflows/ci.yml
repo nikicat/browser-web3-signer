@@ -52,6 +52,43 @@ jobs:
       - name: test
         run: cargo test --all-features --locked
 
+  e2e:
+    name: e2e (Playwright mock-wallet → Rust bridge)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install system dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git pkgconf rustup nodejs npm
+          # rust-toolchain.toml drives channel + components on first cargo call.
+
+      - uses: actions/checkout@v6
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-e2e-
+
+      - name: Build e2e harness
+        run: cargo build --bin e2e-harness --features e2e --locked
+
+      - name: Install Node deps + Chromium
+        working-directory: tests/e2e-browser
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright e2e
+        working-directory: tests/e2e-browser
+        run: npm test
+
   coverage:
     name: coverage (cargo-llvm-cov → Codecov)
     runs-on: ubuntu-latest

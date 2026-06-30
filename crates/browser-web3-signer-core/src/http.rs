@@ -51,14 +51,33 @@ pub fn build_router<R: Request>(
     store: Shared<PendingStore<R>>,
     index_html: &'static str,
 ) -> Router {
+    build_router_with(store, index_html, None)
+}
+
+/// Build the bridge router, optionally merging caller-supplied `extra` routes onto it.
+///
+/// This is the extension point both the planned daemon (its `/api/v1` control API) and the e2e
+/// test harness (`/api/test/*`) hook into: they share the same [`PendingStore`] but mount their
+/// own routes. `extra` must already carry its own state via [`axum::Router::with_state`]; it is
+/// merged after the core routes and the core CORS layer, so a contributor composes its own
+/// middleware rather than inheriting the bridge's.
+pub fn build_router_with<R: Request>(
+    store: Shared<PendingStore<R>>,
+    index_html: &'static str,
+    extra: Option<Router>,
+) -> Router {
     let state = AppState { store, index_html };
-    Router::new()
+    let core = Router::new()
         .route("/api/pending/:id", get(get_pending::<R>))
         .route("/api/complete/:id", post(post_complete::<R>))
         .route("/api/health", get(get_health::<R>))
         .fallback(serve_index::<R>)
         .layer(cors_layer())
-        .with_state(state)
+        .with_state(state);
+    match extra {
+        Some(extra) => core.merge(extra),
+        None => core,
+    }
 }
 
 async fn get_pending<R: Request>(

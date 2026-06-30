@@ -161,3 +161,62 @@ async fn times_out_and_clears_entry() {
 
     engine.shutdown().await;
 }
+
+#[tokio::test]
+async fn start_with_merges_extra_routes_over_shared_store() {
+    use axum::{Router, routing::get};
+
+    // The shared extension point the daemon (`/api/v1`) and the e2e harness (`/api/test/*`)
+    // both build on: extra routes are merged onto the bridge and serve over the same store.
+    let engine = Engine::<Dummy>::new(HTML, BindPort::Ephemeral, BrowserChoice::Print);
+
+    // An extra route that reports the live pending count, proving it sees the engine's store.
+    let store = engine.store();
+    let extra = Router::new().route(
+        "/api/test/ping",
+        get(move || {
+            let store = store.share();
+            async move { format!("pending={}", store.len()) }
+        }),
+    );
+
+    let port = engine.start_with(Some(extra)).await.unwrap();
+    let client = reqwest::Client::new();
+    let base = format!("http://127.0.0.1:{port}");
+
+    // The merged route responds, and core routes still work alongside it.
+    let ping = client
+        .get(format!("{base}/api/test/ping"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert_eq!(ping, "pending=0");
+
+    let prepared = engine.prepare(dummy(), UrlKind::Sign).await.unwrap();
+    let ping = client
+        .get(format!("{base}/api/test/ping"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert_eq!(ping, "pending=1", "extra route observes the shared store");
+
+    // Core route is unaffected by the merge.
+    let health: serde_json::Value = client
+        .get(format!("{base}/api/health"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(health["pendingRequests"], 1);
+
+    drop(prepared);
+    engine.shutdown().await;
+}

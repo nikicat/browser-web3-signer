@@ -109,6 +109,10 @@ rationale behind the key decisions.
 Working today: the one-shot CLI for **EVM and TRON** (connect, send/trigger/deploy,
 message + typed-data signing, read-only balances), with an embedded approval UI per chain.
 
+**E2E browser tests**: a Playwright suite drives a mock wallet against the real Rust bridge,
+testing the full browser interaction flow (connect, sign, reject, address mismatch, timeout).
+Run with `just e2e-setup && just e2e` (one-time `npm install`, then `just e2e`).
+
 Planned: an optional **daemon** mode exposing a local JSON API (persistent connected tab,
 request queue, session cache) for app/language integration, and **TypeScript adaptors**
 (viem transport + ethers signer) over that API. See [ARCHITECTURE.md](ARCHITECTURE.md#roadmap).

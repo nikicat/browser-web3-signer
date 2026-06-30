@@ -56,3 +56,15 @@ coverage-lcov:
 # Drop cached coverage artifacts.
 coverage-clean:
     cargo llvm-cov clean --workspace
+
+# Build the e2e harness (debug is fast enough for tests).
+e2e-build:
+    cargo build --bin e2e-harness --features e2e
+
+# One-time e2e setup: install Node deps and download Chromium.
+e2e-setup:
+    cd tests/e2e-browser && npm install
+
+# Run Playwright e2e tests against the Rust bridge.
+e2e: e2e-build
+    cd tests/e2e-browser && npm test
