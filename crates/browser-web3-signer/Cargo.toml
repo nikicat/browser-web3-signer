@@ -21,7 +21,9 @@ path = "src/bin/tron_harness.rs"
 required-features = ["e2e"]
 
 [features]
-e2e = ["axum", "uuid"]
+# The e2e harness binaries need the pending-request id type; the control API (always built)
+# already pulls in axum.
+e2e = ["uuid"]
 
 [dependencies]
 browser-web3-signer-core = { workspace = true }
@@ -34,8 +36,9 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-# Optional: for the e2e test harness (feature-gated).
-axum = { workspace = true, optional = true }
+# The `serve` control API mounts its routes with axum.
+axum = { workspace = true }
+# Optional: only the feature-gated e2e harness binaries need uuid directly.
 uuid = { workspace = true, optional = true }
 
 [lints]

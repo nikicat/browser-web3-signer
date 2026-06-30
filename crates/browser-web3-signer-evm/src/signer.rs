@@ -87,8 +87,7 @@ impl EvmSigner {
     /// Register a request without opening a browser, returning the approval URL and a result
     /// future. The CLI uses this to print the URL first.
     pub async fn prepare(&self, request: EvmRequest) -> Result<Prepared> {
-        let kind = request.url_kind();
-        self.engine.prepare(request, kind).await
+        self.engine.prepare(request).await
     }
 
     /// Open a URL via the engine's configured browser.
@@ -106,8 +105,7 @@ impl EvmSigner {
     }
 
     async fn submit(&self, request: EvmRequest) -> Result<String> {
-        let kind = request.url_kind();
-        self.engine.submit(request, kind).await
+        self.engine.submit(request).await
     }
 
     /// Connect a wallet, returning the connected address.

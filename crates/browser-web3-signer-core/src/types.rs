@@ -6,14 +6,30 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::browser::UrlKind;
+
 /// Trait every chain-specific pending request must satisfy.
 ///
 /// Chain packages model their requests as a serde-tagged enum (see `EvmRequest`,
 /// `TronRequest`) that serializes to `{ "id", "type", "createdAt", ...fields }` — the exact
 /// shape the in-page router fetches from `GET /api/pending/:id`.
-pub trait Request: Serialize + Clone + Send + Sync + 'static {
+pub trait Request: Serialize + Sized + Clone + Send + Sync + 'static {
     /// The UUID assigned to this request.
     fn id(&self) -> Uuid;
+
+    /// Which page the browser should open for this request (`/connect/:id` vs `/sign/:id`).
+    ///
+    /// The request variant decides its own page — callers never re-derive this from the wire
+    /// `type`, keeping one source of truth for the discriminator.
+    fn url_kind(&self) -> UrlKind;
+
+    /// Build a request from a JSON body — the inverse of its wire serialization (`type`
+    /// discriminator + fields). Errors (as a human-readable reason) on an unknown `type`, a
+    /// missing required field, or a field that fails its domain-type parse.
+    ///
+    /// One source of truth for the request wire shape, shared by the `serve` control API and the
+    /// e2e harness so the two cannot drift.
+    fn from_json(body: &serde_json::Value) -> Result<Self, String>;
 }
 
 /// Metadata common to every chain request, flattened into its JSON as `{ "id": "<uuid>" }`.

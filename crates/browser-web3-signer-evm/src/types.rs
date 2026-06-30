@@ -105,14 +105,6 @@ pub enum EvmRequest {
 }
 
 impl EvmRequest {
-    /// Which page the browser should open for this request.
-    pub const fn url_kind(&self) -> UrlKind {
-        match self {
-            Self::Connect { .. } => UrlKind::Connect,
-            _ => UrlKind::Sign,
-        }
-    }
-
     const fn meta(&self) -> &RequestMeta {
         match self {
             Self::Connect { meta, .. }
@@ -126,6 +118,51 @@ impl EvmRequest {
 impl Request for EvmRequest {
     fn id(&self) -> Uuid {
         self.meta().id
+    }
+
+    fn url_kind(&self) -> UrlKind {
+        match self {
+            Self::Connect { .. } => UrlKind::Connect,
+            _ => UrlKind::Sign,
+        }
+    }
+
+    fn from_json(body: &serde_json::Value) -> Result<Self, String> {
+        let typ = str_field(body, "type")?;
+        let chain_id = body
+            .get("chainId")
+            .and_then(serde_json::Value::as_u64)
+            .map(ChainId);
+
+        match typ {
+            "connect" => Ok(Self::connect(chain_id, opt_parsed(body, "address")?)),
+            "send_transaction" => Ok(Self::send_transaction(SendTransactionParams {
+                to: req_parsed(body, "to")?,
+                from: opt_parsed(body, "from")?,
+                value: opt_parsed(body, "value")?,
+                data: opt_parsed(body, "data")?,
+                chain_id,
+                gas_limit: opt_parsed(body, "gasLimit")?,
+                max_fee_per_gas: opt_parsed(body, "maxFeePerGas")?,
+                max_priority_fee_per_gas: opt_parsed(body, "maxPriorityFeePerGas")?,
+            })),
+            "sign_message" => Ok(Self::sign_message(
+                str_field(body, "message")?.to_owned(),
+                opt_parsed(body, "address")?,
+                chain_id,
+            )),
+            "sign_typed_data" => Ok(Self::sign_typed_data(
+                TypedData {
+                    domain: json_field(body, "domain"),
+                    types: json_field(body, "types"),
+                    primary_type: str_field(body, "primaryType")?.to_owned(),
+                    message: json_field(body, "message"),
+                },
+                opt_parsed(body, "address")?,
+                chain_id,
+            )),
+            other => Err(format!("unknown request type: {other}")),
+        }
     }
 }
 
@@ -204,6 +241,44 @@ impl EvmRequest {
     }
 }
 
+/// Read a required string field, or a "missing/!string" reason.
+fn str_field<'a>(body: &'a serde_json::Value, key: &str) -> Result<&'a str, String> {
+    body.get(key)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| format!("missing or non-string field '{key}'"))
+}
+
+/// Read an open-ended JSON sub-object, defaulting to `{}` when absent (for EIP-712 parts).
+fn json_field(body: &serde_json::Value, key: &str) -> serde_json::Value {
+    body.get(key)
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// Parse a required string field into a domain type `T`, mapping failures to a reason.
+fn req_parsed<T>(body: &serde_json::Value, key: &str) -> Result<T, String>
+where
+    T: std::str::FromStr,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
+{
+    str_field(body, key)?
+        .parse::<T>()
+        .map_err(|e| format!("invalid '{key}': {e}"))
+}
+
+/// Parse an optional string field into a domain type `T`; `None` if absent, error if present but
+/// unparseable.
+fn opt_parsed<T>(body: &serde_json::Value, key: &str) -> Result<Option<T>, String>
+where
+    T: std::str::FromStr,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
+{
+    body.get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(|s| s.parse::<T>().map_err(|e| format!("invalid '{key}': {e}")))
+        .transpose()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,5 +335,63 @@ mod tests {
         assert_eq!(json["primaryType"], "Mail");
         assert_eq!(json["domain"]["name"], "X");
         assert_eq!(json["message"]["a"], 1);
+    }
+
+    #[test]
+    fn from_json_round_trips_send_transaction() {
+        // A request built via the typed API serializes to the wire shape; parsing that wire
+        // shape back via `from_json` reproduces the same request (modulo the fresh id).
+        let original = EvmRequest::send_transaction(SendTransactionParams {
+            to: "0x52908400098527886E0F7030069857D2E4169EE7"
+                .parse()
+                .unwrap(),
+            from: None,
+            value: Some("1000".parse().unwrap()),
+            data: Some("0xdead".parse().unwrap()),
+            chain_id: Some(ChainId(8453)),
+            gas_limit: Some("21000".parse().unwrap()),
+            max_fee_per_gas: Some("5".parse().unwrap()),
+            max_priority_fee_per_gas: None,
+        });
+        let wire = serde_json::to_value(&original).unwrap();
+        let parsed = EvmRequest::from_json(&wire).unwrap();
+        let reparsed_wire = serde_json::to_value(&parsed).unwrap();
+
+        // Ids differ (each builder mints a fresh one); compare everything else.
+        for v in [&wire, &reparsed_wire] {
+            assert_eq!(v["type"], "send_transaction");
+        }
+        assert_eq!(wire["to"], reparsed_wire["to"]);
+        assert_eq!(wire["value"], reparsed_wire["value"]);
+        assert_eq!(wire["data"], reparsed_wire["data"]);
+        assert_eq!(wire["chainId"], reparsed_wire["chainId"]);
+        assert_eq!(wire["gasLimit"], reparsed_wire["gasLimit"]);
+        assert_eq!(wire["maxFeePerGas"], reparsed_wire["maxFeePerGas"]);
+    }
+
+    #[test]
+    fn from_json_rejects_unknown_type_and_bad_field() {
+        assert!(EvmRequest::from_json(&serde_json::json!({ "type": "nope" })).is_err());
+        // Missing required `to`.
+        assert!(EvmRequest::from_json(&serde_json::json!({ "type": "send_transaction" })).is_err());
+        // Present but unparseable address.
+        let bad = serde_json::json!({ "type": "connect", "address": "0xnothex" });
+        assert!(EvmRequest::from_json(&bad).is_err());
+    }
+
+    #[test]
+    fn from_json_parses_typed_data() {
+        let req = EvmRequest::from_json(&serde_json::json!({
+            "type": "sign_typed_data",
+            "primaryType": "Mail",
+            "domain": { "name": "X" },
+            "types": { "EIP712Domain": [] },
+            "message": { "a": 1 },
+            "chainId": 1,
+        }))
+        .unwrap();
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["primaryType"], "Mail");
+        assert_eq!(json["domain"]["name"], "X");
     }
 }

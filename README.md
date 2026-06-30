@@ -7,8 +7,8 @@ leaves the browser** — this tool only routes the request and reads the result 
 
 It's a Rust reimplementation of the browser-signing capability of `mcp-wallet-signer`,
 with a CLI as the interface for agents (no MCP). The core is a library so it can be
-embedded from other languages; TypeScript adaptors (viem/ethers) and an optional
-long-running daemon are planned (see [Status](#status)).
+embedded from other languages; TypeScript adaptors (viem/ethers) over a managed Rust bridge
+subprocess are planned (see [Status](#status)).
 
 ## How it works
 
@@ -77,6 +77,18 @@ Networks: `mainnet`, `shasta`, `nile`. Signing and transaction building happen b
 in TronLink's `tronWeb`; the Rust side only routes requests and does read-only TronGrid
 queries.
 
+### Serve (control API for language bindings)
+
+```sh
+browser-web3-signer serve --chain evm     # prints the bound port, then blocks
+```
+
+Runs the bridge on a stable port for the process lifetime and exposes `POST /api/v1/request`
+(body is a request `{type, …}`; opens the wallet, blocks, returns `{success, result}` or
+`{success:false, error, code?}`) and `GET /api/v1/health`. A language binding spawns this and
+drives the wallet over HTTP — see the [TypeScript binding](ts). Honors the global `--browser` /
+`--print` flags for how the approval page opens.
+
 ## Configuration (env)
 
 | Variable | Default | Meaning |
@@ -114,9 +126,21 @@ message + typed-data signing, read-only balances), with an embedded approval UI 
 testing the full browser interaction flow. Run with `just e2e-setup && just e2e` (one-time
 `npm install` + Chromium download, then `just e2e`).
 
-Planned: an optional **daemon** mode exposing a local JSON API (persistent connected tab,
-request queue, session cache) for app/language integration, and **TypeScript adaptors**
-(viem transport + ethers signer) over that API. See [ARCHITECTURE.md](ARCHITECTURE.md#roadmap).
+**Control API** (`serve`): `browser-web3-signer serve --chain evm|tron` runs the bridge on a
+stable port for its lifetime and exposes `POST /api/v1/request` + `GET /api/v1/health`, printing
+the bound port to stdout. This is the long-lived mode language bindings spawn and drive.
+
+**TypeScript binding** ([`ts/`](ts)): a `WalletSignerClient` that spawns and supervises the
+`serve` subprocess and drives it over `/api/v1`, plus a **viem** transport + hybrid account — so a
+TS program signs with the user's browser wallet, and the persistent tab skips the reconnect prompt
+across calls.
+
+Persistent sessions in Rust: hold a single `EvmSigner` / `TronSigner` and reuse it — same stable
+port, same effect (the pattern the reference's long-lived `WalletSigner` uses; no daemon required).
+
+Deferred: a full multi-client daemon (discovery file, auth, request queue, SSE), warranted only if
+several independent processes must share one connected tab. See
+[ARCHITECTURE.md](ARCHITECTURE.md#roadmap).
 
 ## License
 

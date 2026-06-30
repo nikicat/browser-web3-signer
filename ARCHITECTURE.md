@@ -11,7 +11,8 @@ project), with two changes of intent:
 - **The CLI is the interface for agents** — MCP is dropped. An agent runs a command and
   reads stdout.
 - **The core is a reusable library**, so the capability can be embedded from other
-  languages (via a planned local daemon API) and wrapped by TypeScript adaptors.
+  languages (via bindings that manage a Rust bridge subprocess) and wrapped by TypeScript
+  adaptors. See [Roadmap](#roadmap) for why this, and not a daemon, is the planned path.
 
 The defining property is preserved: **the private key never leaves the user's browser
 wallet.** This process only ferries a request to a local page and reads the signed result
@@ -42,7 +43,7 @@ engine.prepare(request)            create a UUID-keyed pending entry, build the 
    └─◄ ResultFuture resolves   ◄── POST /api/complete/:id  {success,result|error,code}
 ```
 
-`Engine::submit` is the convenience path (prepare + open + await) for the library/daemon;
+`Engine::submit` is the convenience path (prepare + open + await) for library/binding callers;
 the CLI uses `prepare` so it can print the URL before opening. Requests time out after
 5 minutes; a timed-out or cancelled entry is removed so the bridge stops serving it.
 
@@ -54,10 +55,17 @@ in-page router dispatches `/connect/:id` and `/sign/:id`). CORS mirrors the refe
 TS adaptors interoperate.
 
 `build_router_with` / `Engine::start_with` add an **extension point**: a caller can merge its
-own routes onto the core bridge, sharing the same `PendingStore`. Both the planned daemon (its
-`/api/v1` control API + SSE) and the e2e test harness (`/api/test/*`) hook in here rather than
-forking the router. The merged routes carry their own state and middleware; the core CORS layer
-applies only to the core routes.
+own routes onto the core bridge, sharing the same `PendingStore`. Two callers use it today: the
+`serve` control API mounts `/api/v1/*` (the long-lived mode language bindings drive — see
+[Roadmap](#roadmap)), and the e2e test harness mounts `/api/test/*`, both rather than forking the
+router. The merged routes carry their own state and middleware; the core CORS layer applies only
+to the core routes.
+
+A request's approval page (`/connect` vs `/sign`) is reported by the request itself via
+`Request::url_kind`, and a request is reconstructed from its wire JSON via `Request::from_json`
+(the inverse of its `Serialize`). Both live on the core trait, so `Engine::prepare`/`submit`, the
+`serve` control API, and the e2e harness all stay chain-agnostic — there is one source of truth
+for the discriminator and the wire shape, shared across EVM and TRON.
 
 ## Core abstractions (`browser-web3-signer-core`)
 
@@ -100,8 +108,10 @@ not mandatory:
   stays stable across invocations — that's what lets a wallet skip the reconnect prompt. If
   it's already in use, they fall back to an OS-assigned ephemeral port instead of failing,
   so concurrent commands never collide.
-- A future **daemon** will own the stable port; concurrency among apps is handled there by a
-  request queue, not by many listeners.
+- **A long-lived signer** (a reused `EvmSigner`/`TronSigner`, or one held by a binding's managed
+  bridge subprocess) keeps the preferred port for its whole lifetime, so the persistent tab's
+  origin never changes — the same mechanism, just longer-lived. Only a future multi-client
+  daemon (see [Roadmap](#roadmap)) would need a request queue to share one port across processes.
 
 ### `Shared<T>` instead of scattered `Arc::clone`
 
@@ -160,14 +170,54 @@ pre-publish, multi-dependency workspace.
 
 ## Roadmap
 
-- **Phase 4 — daemon + local JSON API.** `daemon start|stop|status`, a discovery file
-  (`{port, pid, token}`) with bearer-token auth, a control API (`POST /api/v1/…`), a request
-  queue serializing signing for human approval, a session cache (connected address persists
-  → skip reconnect), and SSE to a persistent connected tab.
-- **Phase 5 — TypeScript adaptors.** A viem `CustomTransport` + hybrid account and an ethers
-  `Signer`/`Provider`, both clients of the daemon API.
+### How persistent sessions actually work (and why there is no daemon phase)
+
+The original `mcp-wallet-signer` (TS) has **no daemon** — no discovery file, no bearer auth, no
+`/api/v1`, no SSE. We read the reference to check, and the persistent-session problem is solved
+differently: its `WalletSigner` is a **long-lived in-process object that owns its HTTP server and
+binds a stable port**. You construct it once and reuse it for many operations; because the origin
+(`127.0.0.1:<port>`) stays fixed, the wallet skips the reconnect prompt on subsequent calls. The
+MCP server does exactly this — one `WalletSigner` at startup, reused across every tool call. The
+viem layer (`transport.ts`, `viem-account.ts`) is then a thin client of *that same in-process
+object*, not of any network service.
+
+Our `EvmSigner` / `TronSigner` are already this: each owns an `Engine`, binds
+`BindPort::Preferred` (the stable port), and lazily starts the bridge on first use. **A Rust
+program gets persistent sessions today by holding a signer and reusing it** — no extra machinery.
+
+The one thing the reference never had to solve, but we do: there, the signer *and* its consumers
+live in the same Node process, so persistence is just object lifetime. In our port the server is
+**Rust**, so a TS/Go consumer can't hold it in-process. The lightweight, faithful analog is for
+the binding to **spawn and supervise a Rust bridge subprocess for its own lifetime** — the same
+`WalletSigner` lifecycle, across a process boundary the binding owns. One stable port, one
+persistent tab, dies with the parent. The port is learned from the child's stdout (the mechanism
+the e2e harnesses already use), so this needs **no discovery file and no auth** (it's a localhost
+child you spawned).
+
+### Phases
+
+- **Phase 4 — language bindings over a managed bridge subprocess.** ✅ done.
+  - *Control API:* `serve --chain evm|tron` runs the bridge on the preferred (stable) port for
+    the process lifetime and exposes `POST /api/v1/request` (create → open browser → block →
+    return result) + `GET /api/v1/health`, mounted via the `start_with` extension point. It
+    prints the bound port to stdout, then blocks. Generic over the chain's request type.
+  - *Rust:* `EvmSigner` / `TronSigner` are the reusable, persistent-session API (hold one and
+    reuse it).
+  - *TypeScript:* [`ts/`](ts) — `WalletSignerClient` spawns and supervises the `serve`
+    subprocess and drives it over `/api/v1`, plus a viem `CustomTransport` + hybrid account
+    (`transport.ts`, `viem-account.ts`) ported from the reference. Tested against the real
+    subprocess with a fake-wallet stand-in.
+  - *Go:* same shape as TS, if/when needed (not yet built).
+- **Phase 5 — full multi-client daemon (deferred; build only on demand).** A standalone
+  `daemon start|stop|status` with a discovery file (`{port, pid, token}`), bearer-token auth, a
+  control API (`POST /api/v1/…`), a request queue serializing human approval, a session cache,
+  and SSE to a persistent tab. This is only justified by a requirement the reference never had
+  and Phase 4 doesn't meet: **several independent processes sharing one connected wallet tab.**
+  Absent that, it is over-engineering — the per-binding managed subprocess above already gives a
+  single consumer a persistent session. The `start_with` / `build_router_with` extension point
+  (above) is the seam this would mount on if built.
 - **Phase 6 — tests & docs.** Integration tests and a Playwright mock-wallet e2e against the
   Rust bridge (✅ EVM + TRON, in [`tests/e2e-browser`](tests/e2e-browser)), plus expanded docs.
   The e2e suite drives the real bridge through feature-gated harness binaries (`evm-harness`,
   `tron-harness`, sharing generic plumbing) that mount test-only routes via the `start_with`
-  extension point above — the same hook the daemon reuses.
+  extension point above.

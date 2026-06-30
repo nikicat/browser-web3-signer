@@ -22,6 +22,23 @@ impl Request for Dummy {
     fn id(&self) -> Uuid {
         self.id
     }
+
+    fn url_kind(&self) -> UrlKind {
+        UrlKind::Sign
+    }
+
+    fn from_json(body: &serde_json::Value) -> Result<Self, String> {
+        Ok(Self {
+            id: Uuid::new_v4(),
+            kind: "sign_message".to_owned(),
+            created_at: 0,
+            message: body
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        })
+    }
 }
 
 const HTML: &str = "<!doctype html><title>test</title>";
@@ -42,7 +59,7 @@ async fn round_trip_success() {
 
     let req = dummy();
     let id = req.id;
-    let prepared = engine.prepare(req, UrlKind::Sign).await.unwrap();
+    let prepared = engine.prepare(req).await.unwrap();
     assert_eq!(
         prepared.url.as_str(),
         format!("http://127.0.0.1:{port}/sign/{id}")
@@ -97,7 +114,7 @@ async fn round_trip_error_with_code() {
     let port = engine.start().await.unwrap();
     let req = dummy();
     let id = req.id;
-    let prepared = engine.prepare(req, UrlKind::Sign).await.unwrap();
+    let prepared = engine.prepare(req).await.unwrap();
 
     let client = reqwest::Client::new();
     client
@@ -151,7 +168,7 @@ async fn times_out_and_clears_entry() {
     let engine = Engine::<Dummy>::new(HTML, BindPort::Ephemeral, BrowserChoice::Print);
     engine.start().await.unwrap();
     let req = dummy();
-    let prepared = engine.prepare(req, UrlKind::Sign).await.unwrap();
+    let prepared = engine.prepare(req).await.unwrap();
 
     // Advance virtual time past the 5-minute timeout.
     time::advance(Duration::from_secs(5 * 60 + 1)).await;
@@ -166,8 +183,8 @@ async fn times_out_and_clears_entry() {
 async fn start_with_merges_extra_routes_over_shared_store() {
     use axum::{Router, routing::get};
 
-    // The shared extension point the daemon (`/api/v1`) and the e2e harness (`/api/test/*`)
-    // both build on: extra routes are merged onto the bridge and serve over the same store.
+    // The shared extension point the `serve` control API (`/api/v1`) and the e2e harness
+    // (`/api/test/*`) both build on: extra routes merge onto the bridge over the same store.
     let engine = Engine::<Dummy>::new(HTML, BindPort::Ephemeral, BrowserChoice::Print);
 
     // An extra route that reports the live pending count, proving it sees the engine's store.
@@ -195,7 +212,7 @@ async fn start_with_merges_extra_routes_over_shared_store() {
         .unwrap();
     assert_eq!(ping, "pending=0");
 
-    let prepared = engine.prepare(dummy(), UrlKind::Sign).await.unwrap();
+    let prepared = engine.prepare(dummy()).await.unwrap();
     let ping = client
         .get(format!("{base}/api/test/ping"))
         .send()

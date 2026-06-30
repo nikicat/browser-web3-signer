@@ -6,9 +6,10 @@
 mod evm;
 mod flow;
 mod output;
+mod serve;
 mod tron;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// Shared CLI context derived from the global options.
 pub(crate) struct CliContext {
@@ -103,6 +104,19 @@ impl GlobalOpts {
     }
 }
 
+impl OpenMode {
+    /// The engine-level [`BrowserChoice`] this open mode corresponds to. Used by `serve`, which
+    /// hands the choice to the engine (rather than driving the open itself like the one-shot CLI).
+    fn browser_choice(&self) -> browser_web3_signer_core::BrowserChoice {
+        use browser_web3_signer_core::BrowserChoice;
+        match self {
+            Self::Default => BrowserChoice::Default,
+            Self::Named(name) => BrowserChoice::Named(name.clone()),
+            Self::PrintOnly => BrowserChoice::Print,
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 enum Command {
     /// EVM chains (Ethereum, Polygon, Arbitrum, …).
@@ -115,6 +129,26 @@ enum Command {
         #[command(subcommand)]
         cmd: tron::TronCommand,
     },
+    /// Run the long-lived control API for a single chain (for language bindings).
+    ///
+    /// Holds the bridge on a stable port for the process lifetime and exposes
+    /// `POST /api/v1/request` + `GET /api/v1/health`. Prints the bound port to stdout, then
+    /// blocks. A binding spawns this, reads the port, and drives the wallet over HTTP; the
+    /// persistent tab lets the wallet skip the reconnect prompt across calls.
+    Serve {
+        /// Which chain's requests to serve.
+        #[arg(long, value_enum)]
+        chain: Chain,
+    },
+}
+
+/// Which chain a `serve` process drives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Chain {
+    /// EVM chains via an injected/EIP-6963 wallet.
+    Evm,
+    /// TRON via TronLink.
+    Tron,
 }
 
 #[tokio::main]
@@ -136,5 +170,31 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::Evm { cmd } => evm::run(cmd, ctx).await,
         Command::Tron { cmd } => tron::run(cmd, ctx).await,
+        Command::Serve { chain } => run_serve(chain, &ctx).await,
+    }
+}
+
+/// Dispatch `serve` for the chosen chain: pick the chain's embedded UI, `from_json`, and preferred
+/// port, then run the control API until the process is killed.
+async fn run_serve(chain: Chain, ctx: &CliContext) -> anyhow::Result<()> {
+    use browser_web3_signer_core::BindPort;
+    let browser = ctx.open.browser_choice();
+    match chain {
+        Chain::Evm => {
+            serve::run::<browser_web3_signer_evm::EvmRequest>(
+                browser_web3_signer_evm::WEB_UI,
+                BindPort::Preferred(browser_web3_signer_evm::port()),
+                browser,
+            )
+            .await
+        }
+        Chain::Tron => {
+            serve::run::<browser_web3_signer_tron::TronRequest>(
+                browser_web3_signer_tron::WEB_UI,
+                BindPort::Preferred(browser_web3_signer_tron::port()),
+                browser,
+            )
+            .await
+        }
     }
 }
