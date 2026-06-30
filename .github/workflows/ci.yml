@@ -55,15 +55,7 @@ jobs:
   e2e:
     name: e2e (Playwright mock-wallet → Rust bridge)
     runs-on: ubuntu-latest
-    container:
-      image: archlinux:latest
     steps:
-      - name: Install system dependencies
-        run: |
-          pacman -Syu --noconfirm --needed \
-            base-devel git pkgconf rustup nodejs npm
-          # rust-toolchain.toml drives channel + components on first cargo call.
-
       - uses: actions/checkout@v6
 
       - name: Cache cargo registry and target
