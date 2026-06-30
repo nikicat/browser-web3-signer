@@ -301,6 +301,107 @@ impl TronRequest {
             address,
         }
     }
+
+    /// Build a request from a JSON body, the inverse of the wire serialization: the `type`
+    /// discriminator selects the variant, the remaining fields fill it. Errors (as a
+    /// human-readable reason) on an unknown `type`, a missing required field, or a field that
+    /// fails its domain-type parse.
+    ///
+    /// One source of truth for the request wire shape, shared by the control API (`serve`) and
+    /// the e2e harness so they cannot drift.
+    pub fn from_json(body: &serde_json::Value) -> Result<Self, String> {
+        let typ = str_field(body, "type")?;
+        let network = opt_parsed(body, "network")?;
+
+        match typ {
+            "connect" => Ok(Self::connect(network, opt_parsed(body, "address")?)),
+            "send_transaction" => Ok(Self::send_transaction(SendTransactionParams {
+                to: req_parsed(body, "to")?,
+                from: opt_parsed(body, "from")?,
+                amount: req_parsed(body, "amount")?,
+                data: opt_parsed(body, "data")?,
+                network,
+            })),
+            "trigger_contract" => Ok(Self::trigger_contract(TriggerContractParams {
+                contract_address: req_parsed(body, "contractAddress")?,
+                from: opt_parsed(body, "from")?,
+                function_selector: str_field(body, "functionSelector")?.to_owned(),
+                parameters: body.get("parameters").cloned(),
+                fee_limit: opt_parsed(body, "feeLimit")?,
+                call_value: opt_parsed(body, "callValue")?,
+                network,
+            })),
+            "deploy_contract" => Ok(Self::deploy_contract(DeployContractParams {
+                abi: body.get("abi").cloned().ok_or("missing field 'abi'")?,
+                bytecode: req_parsed(body, "bytecode")?,
+                contract_name: body
+                    .get("contractName")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+                parameters: body.get("parameters").cloned(),
+                from: opt_parsed(body, "from")?,
+                fee_limit: opt_parsed(body, "feeLimit")?,
+                call_value: opt_parsed(body, "callValue")?,
+                origin_energy_limit: opt_parsed(body, "originEnergyLimit")?,
+                user_fee_percentage: opt_parsed(body, "userFeePercentage")?,
+                network,
+            })),
+            "sign_message" => Ok(Self::sign_message(
+                str_field(body, "message")?.to_owned(),
+                opt_parsed(body, "address")?,
+                network,
+            )),
+            "sign_typed_data" => Ok(Self::sign_typed_data(
+                TypedData {
+                    domain: json_field(body, "domain"),
+                    types: json_field(body, "types"),
+                    primary_type: str_field(body, "primaryType")?.to_owned(),
+                    message: json_field(body, "message"),
+                },
+                opt_parsed(body, "address")?,
+                network,
+            )),
+            other => Err(format!("unknown request type: {other}")),
+        }
+    }
+}
+
+/// Read a required string field, or a "missing/!string" reason.
+fn str_field<'a>(body: &'a serde_json::Value, key: &str) -> Result<&'a str, String> {
+    body.get(key)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| format!("missing or non-string field '{key}'"))
+}
+
+/// Read an open-ended JSON sub-object, defaulting to `{}` when absent (for TIP-712 parts).
+fn json_field(body: &serde_json::Value, key: &str) -> serde_json::Value {
+    body.get(key)
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// Parse a required string field into a domain type `T`, mapping failures to a reason.
+fn req_parsed<T>(body: &serde_json::Value, key: &str) -> Result<T, String>
+where
+    T: std::str::FromStr,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
+{
+    str_field(body, key)?
+        .parse::<T>()
+        .map_err(|e| format!("invalid '{key}': {e}"))
+}
+
+/// Parse an optional string field into a domain type `T`; `None` if absent, error if present but
+/// unparseable.
+fn opt_parsed<T>(body: &serde_json::Value, key: &str) -> Result<Option<T>, String>
+where
+    T: std::str::FromStr,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
+{
+    body.get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(|s| s.parse::<T>().map_err(|e| format!("invalid '{key}': {e}")))
+        .transpose()
 }
 
 #[cfg(test)]
@@ -339,5 +440,56 @@ mod tests {
         assert_eq!(json["functionSelector"], "transfer(address,uint256)");
         assert_eq!(json["feeLimit"], "150000000");
         assert!(json.get("callValue").is_none());
+    }
+
+    #[test]
+    fn from_json_round_trips_trigger_contract() {
+        let original = TronRequest::trigger_contract(TriggerContractParams {
+            contract_address: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC".parse().unwrap(),
+            from: None,
+            function_selector: "transfer(address,uint256)".into(),
+            parameters: Some(serde_json::json!([{ "type": "uint256", "value": "1" }])),
+            fee_limit: Some("150000000".parse().unwrap()),
+            call_value: None,
+            network: Some(TronNetwork::Mainnet),
+        });
+        let wire = serde_json::to_value(&original).unwrap();
+        let parsed = TronRequest::from_json(&wire).unwrap();
+        let reparsed = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(wire["type"], reparsed["type"]);
+        assert_eq!(wire["contractAddress"], reparsed["contractAddress"]);
+        assert_eq!(wire["functionSelector"], reparsed["functionSelector"]);
+        assert_eq!(wire["feeLimit"], reparsed["feeLimit"]);
+        assert_eq!(wire["parameters"], reparsed["parameters"]);
+        assert_eq!(wire["network"], reparsed["network"]);
+    }
+
+    #[test]
+    fn from_json_parses_deploy_contract() {
+        let req = TronRequest::from_json(&serde_json::json!({
+            "type": "deploy_contract",
+            "abi": [{ "type": "constructor", "inputs": [] }],
+            "bytecode": "0x6080",
+            "contractName": "Greeter",
+            "feeLimit": "1500000000",
+            "network": "mainnet",
+        }))
+        .unwrap();
+        let json = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["type"], "deploy_contract");
+        assert_eq!(json["contractName"], "Greeter");
+        assert_eq!(json["feeLimit"], "1500000000");
+    }
+
+    #[test]
+    fn from_json_rejects_unknown_type_and_bad_field() {
+        assert!(TronRequest::from_json(&serde_json::json!({ "type": "nope" })).is_err());
+        // Missing required `to`.
+        assert!(
+            TronRequest::from_json(&serde_json::json!({ "type": "send_transaction" })).is_err()
+        );
+        // Present but invalid Base58Check address.
+        let bad = serde_json::json!({ "type": "connect", "address": "Tnot-valid" });
+        assert!(TronRequest::from_json(&bad).is_err());
     }
 }
