@@ -1,0 +1,23 @@
+{
+  "name": "browser-web3-signer-ts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "TypeScript binding (viem transport + account) over the browser-web3-signer control API.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx ./test/*.test.ts"
+  },
+  "peerDependencies": {
+    "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "viem": "^2.48.4",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}

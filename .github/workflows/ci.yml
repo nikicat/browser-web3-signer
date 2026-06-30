@@ -22,10 +22,10 @@ jobs:
             base-devel git pkgconf rustup taplo-cli
           # rust-toolchain.toml drives channel + components on first cargo call.
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache cargo registry and target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -56,10 +56,10 @@ jobs:
     name: e2e (Playwright mock-wallet → Rust bridge)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache cargo registry and target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -81,6 +81,37 @@ jobs:
         working-directory: tests/e2e-browser
         run: npm test
 
+  ts-binding:
+    name: ts-binding (viem over the serve subprocess)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-ts-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-ts-
+
+      - name: Build the signer binary
+        run: cargo build --bin browser-web3-signer --locked
+
+      - name: Install Node deps
+        working-directory: ts
+        run: npm install
+
+      - name: Typecheck
+        working-directory: ts
+        run: npm run typecheck
+
+      - name: Test (against the real serve subprocess)
+        working-directory: ts
+        run: npm test
+
   coverage:
     name: coverage (cargo-llvm-cov → Codecov)
     runs-on: ubuntu-latest
@@ -92,10 +123,10 @@ jobs:
           pacman -Syu --noconfirm --needed \
             base-devel git pkgconf rustup cargo-llvm-cov
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache cargo registry and target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -111,7 +142,7 @@ jobs:
 
       - name: Upload to Codecov
         if: always()
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: lcov.info
           fail_ci_if_error: false
