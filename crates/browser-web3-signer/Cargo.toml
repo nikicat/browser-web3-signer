@@ -10,6 +10,19 @@ description = "CLI for browser-based web3 wallet signing (EVM + TRON): the agent
 name = "browser-web3-signer"
 path = "src/main.rs"
 
+[[bin]]
+name = "evm-harness"
+path = "src/bin/evm_harness.rs"
+required-features = ["e2e"]
+
+[[bin]]
+name = "tron-harness"
+path = "src/bin/tron_harness.rs"
+required-features = ["e2e"]
+
+[features]
+e2e = ["axum", "uuid"]
+
 [dependencies]
 browser-web3-signer-core = { workspace = true }
 browser-web3-signer-evm = { workspace = true }
@@ -21,6 +34,9 @@ serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# Optional: for the e2e test harness (feature-gated).
+axum = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
 
 [lints]
 workspace = true

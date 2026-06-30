@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::browser::{self, BrowserChoice, UrlKind};
 use crate::config::{BindPort, Port};
 use crate::errors::{Result, SignerError};
-use crate::http::build_router;
+use crate::http::build_router_with;
 use crate::pending_store::{PendingStore, REQUEST_TIMEOUT};
 use crate::shared::Shared;
 use crate::types::{Request, RequestResult};
@@ -71,6 +71,16 @@ impl<R: Request> Engine<R> {
     /// already in use (another one-shot command, or the daemon), it falls back to an ephemeral
     /// port rather than failing — so concurrent commands never collide.
     pub async fn start(&self) -> Result<Port> {
+        self.start_with(None).await
+    }
+
+    /// Start the bridge, merging caller-supplied `extra` routes onto the core bridge before
+    /// serving (see [`build_router_with`]). The daemon uses this to mount its control API and the
+    /// e2e harness to mount its test endpoints, both over the engine's shared store.
+    ///
+    /// Idempotent like [`Self::start`]: `extra` is honored only on the call that actually starts
+    /// the server; once running, later calls just return the bound port.
+    pub async fn start_with(&self, extra: Option<axum::Router>) -> Result<Port> {
         let mut guard = self.server.lock().await;
         if let Some(state) = guard.as_ref() {
             return Ok(state.port);
@@ -78,7 +88,7 @@ impl<R: Request> Engine<R> {
 
         let (listener, port) = bind_listener(self.bind).await?;
 
-        let app = build_router(self.store.share(), self.index_html);
+        let app = build_router_with(self.store.share(), self.index_html, extra);
         let (tx, rx) = oneshot::channel::<()>();
         let handle = tokio::spawn(async move {
             let server = axum::serve(listener, app).with_graceful_shutdown(async move {
