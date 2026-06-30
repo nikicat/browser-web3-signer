@@ -7,8 +7,8 @@ leaves the browser** — this tool only routes the request and reads the result 
 
 It's a Rust reimplementation of the browser-signing capability of `mcp-wallet-signer`,
 with a CLI as the interface for agents (no MCP). The core is a library so it can be
-embedded from other languages; TypeScript adaptors (viem/ethers) and an optional
-long-running daemon are planned (see [Status](#status)).
+embedded from other languages; TypeScript adaptors (viem/ethers) over a managed Rust bridge
+subprocess are planned (see [Status](#status)).
 
 ## How it works
 
@@ -114,9 +114,15 @@ message + typed-data signing, read-only balances), with an embedded approval UI 
 testing the full browser interaction flow. Run with `just e2e-setup && just e2e` (one-time
 `npm install` + Chromium download, then `just e2e`).
 
-Planned: an optional **daemon** mode exposing a local JSON API (persistent connected tab,
-request queue, session cache) for app/language integration, and **TypeScript adaptors**
-(viem transport + ethers signer) over that API. See [ARCHITECTURE.md](ARCHITECTURE.md#roadmap).
+Persistent sessions today: hold a single `EvmSigner` / `TronSigner` and reuse it — it keeps the
+bridge on a stable port for its lifetime, so the wallet skips the reconnect prompt on later calls
+(the same pattern the reference's long-lived `WalletSigner` uses; no daemon required).
+
+Planned: **TypeScript adaptors** (viem transport + ethers signer) as thin clients that spawn and
+manage a Rust bridge subprocess — giving a TS consumer the same persistent session across the
+language boundary. A full multi-client daemon (discovery file, auth, request queue, SSE) is
+deferred: it is only warranted if several independent processes must share one connected tab.
+See [ARCHITECTURE.md](ARCHITECTURE.md#roadmap).
 
 ## License
 
