@@ -1,4 +1,4 @@
-//! EVM subcommands: one-shot wallet operations and read-only balance queries.
+//! EVM subcommands: one-shot wallet operations.
 
 use std::path::PathBuf;
 
@@ -72,27 +72,6 @@ pub(crate) enum EvmCommand {
         /// Address to sign with.
         #[arg(long)]
         address: Option<Address>,
-        /// Chain id.
-        #[arg(long)]
-        chain: Option<ChainId>,
-    },
-    /// Read the native balance (no browser).
-    GetBalance {
-        /// Address to query.
-        #[arg(long)]
-        address: Address,
-        /// Chain id.
-        #[arg(long)]
-        chain: Option<ChainId>,
-    },
-    /// Read an ERC-20 token balance (no browser).
-    GetTokenBalance {
-        /// Token contract address.
-        #[arg(long)]
-        token: Address,
-        /// Holder address to query.
-        #[arg(long)]
-        address: Address,
         /// Chain id.
         #[arg(long)]
         chain: Option<ChainId>,
@@ -212,43 +191,6 @@ impl EvmCli {
         }
         Ok(())
     }
-
-    async fn get_balance(&self, address: Address, chain: Option<ChainId>) -> Result<()> {
-        let res = self.signer.get_balance(address, chain).await?;
-        match self.ctx.output {
-            OutputFormat::Text => {
-                println!("Balance: {} {}", res.to_decimal_string(), res.symbol);
-                println!("Wei:     {}", res.amount);
-            }
-            OutputFormat::Json => output::json(&json!({
-                "balance": res.to_decimal_string(),
-                "wei": res.amount.to_string(),
-                "symbol": res.symbol.to_string(),
-            })),
-        }
-        Ok(())
-    }
-
-    async fn get_token_balance(
-        &self,
-        token: Address,
-        address: Address,
-        chain: Option<ChainId>,
-    ) -> Result<()> {
-        let res = self.signer.get_token_balance(token, address, chain).await?;
-        match self.ctx.output {
-            OutputFormat::Text => {
-                println!("Balance: {} {}", res.amount.to_decimal_string(), res.symbol);
-            }
-            OutputFormat::Json => output::json(&json!({
-                "balance": res.amount.to_decimal_string(),
-                "raw": res.amount.raw().to_string(),
-                "symbol": res.symbol.to_string(),
-                "decimals": res.amount.decimals().get(),
-            })),
-        }
-        Ok(())
-    }
 }
 
 /// Run an EVM subcommand by dispatching to the matching [`EvmCli`] method.
@@ -292,11 +234,5 @@ pub(crate) async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
             address,
             chain,
         } => cli.sign_typed_data(&file, address, chain).await,
-        EvmCommand::GetBalance { address, chain } => cli.get_balance(address, chain).await,
-        EvmCommand::GetTokenBalance {
-            token,
-            address,
-            chain,
-        } => cli.get_token_balance(token, address, chain).await,
     }
 }

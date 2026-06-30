@@ -46,11 +46,6 @@ stdout.
 ### EVM
 
 ```sh
-# Read-only (no browser, no wallet):
-browser-web3-signer evm get-balance --address 0xd8dA…6045 --chain 8453
-browser-web3-signer evm get-token-balance --token 0x833589…2913 --address 0xd8dA…6045 --chain 8453
-
-# Browser-approved:
 browser-web3-signer evm connect --chain 1
 browser-web3-signer evm send-transaction --to 0x… --value 1000000000000000 --chain 1
 browser-web3-signer evm sign-message --message "hello"
@@ -64,7 +59,6 @@ fee flags are in wei.
 ### TRON
 
 ```sh
-browser-web3-signer tron get-balance --address T… --network mainnet
 browser-web3-signer tron connect
 browser-web3-signer tron send-transaction --to T… --amount 1000000          # SUN (1 TRX = 1e6 SUN)
 browser-web3-signer tron trigger-contract --contract T… --selector 'transfer(address,uint256)' \
@@ -74,8 +68,7 @@ browser-web3-signer tron deploy-contract --abi-file ./abi.json --bytecode 0x…
 ```
 
 Networks: `mainnet`, `shasta`, `nile`. Signing and transaction building happen browser-side
-in TronLink's `tronWeb`; the Rust side only routes requests and does read-only TronGrid
-queries.
+in TronLink's `tronWeb`; the Rust side only routes requests.
 
 ### Serve (control API for language bindings)
 
@@ -119,7 +112,7 @@ rationale behind the key decisions.
 ## Status
 
 Working today: the one-shot CLI for **EVM and TRON** (connect, send/trigger/deploy,
-message + typed-data signing, read-only balances), with an embedded approval UI per chain.
+message + typed-data signing), with an embedded approval UI per chain.
 
 **E2E browser tests**: a Playwright suite drives a mock wallet against the real Rust bridge for
 **both EVM and TRON** (connect, sign, send/trigger/deploy, reject, cancel, address mismatch),

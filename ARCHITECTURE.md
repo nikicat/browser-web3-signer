@@ -23,8 +23,8 @@ back. The HTTP bridge binds `127.0.0.1` exclusively.
 ```
 crates/
   browser-web3-signer-core/   chain-agnostic engine (lib)
-  browser-web3-signer-evm/    EVM requests, domain types, embedded UI, alloy reads (lib)
-  browser-web3-signer-tron/   TRON requests, domain types, embedded UI, TronGrid reads (lib)
+  browser-web3-signer-evm/    EVM requests, domain types, embedded UI (lib)
+  browser-web3-signer-tron/   TRON requests, domain types, embedded UI (lib)
   browser-web3-signer/        the `browser-web3-signer` binary (one-shot CLI)
 web/
   evm.html / tron.html        self-contained vanilla-JS approval UIs (embedded via include_str!)
@@ -123,24 +123,19 @@ explicitly, which reads better than `Arc::clone(&x)` everywhere and keeps
 ### Per-chain crates, shared core
 
 The core is fully chain-agnostic. EVM and TRON each provide their request enum, domain
-types, embedded UI, read-only queries, and a typed signer over `Engine`. Adding a chain
-means a new crate, not changes to core.
+types, embedded UI, and a typed signer over `Engine`. Adding a chain means a new crate, not
+changes to core.
 
-### EVM read side: `alloy`
+### No read side: reads belong to the caller
 
-Read-only balance queries (`get_balance`, ERC-20 `get_token_balance`) use `alloy` — the
-current standard Rust EVM library — via an HTTP provider and a `sol!` `IERC20` interface.
-Signing/sending happens in the browser wallet, so the Rust side needs no signer.
-
-### TRON read side: lean `bs58` + `reqwest`, not a full SDK
-
-The TRON Rust SDKs (`tronic`, `anychain-tron`, …) are gRPC/transaction-building/signing
-libraries — they'd add large dependency trees (tonic/prost, k256, ethabi, protobuf) for
-features we never call, because **TRON signing and tx-building happen browser-side in
-TronLink**. The Rust side only needs (1) Base58Check address handling and (2) two read-only
-TronGrid HTTP calls. So we use the maintained `bs58` crate (with checksum) for the address
-codec and `reqwest` for the reads. `TronAddress` is stored as its canonical 21 bytes
-(`0x41` + 20-byte body) and validated via Base58Check on construction.
+This tool is purely a browser-signing bridge. Plain JSON-RPC reads (native/token balances,
+etc.) need no wallet, browser, or key — they're trivially done with `cast` or any EVM/TRON
+SDK — so they live with the caller, not here. Dropping them keeps the dependency footprint
+small: the EVM crate uses `alloy` only for its primitive domain types (`Address`, `Wei`/`U256`,
+`Bytes`), not for a provider/RPC stack, and the TRON crate uses just `alloy-primitives` plus the
+maintained `bs58` crate (with checksum) for the Base58Check address codec — no HTTP client. EVM
+`Address` and `TronAddress` are validated on construction (the latter stored as its canonical
+21 bytes: `0x41` prefix + 20-byte body).
 
 ### CLI: one-shot, runner structs, clean output streams
 
