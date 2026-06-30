@@ -109,6 +109,15 @@ just coverage   # cargo-llvm-cov summary
 (`.pre-commit-config.yaml`). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and the
 rationale behind the key decisions.
 
+### Manual real-wallet test (local anvil)
+
+[`scripts/manual-test-evm.sh`](scripts/manual-test-evm.sh) drives your **real** browser wallet
+against a throwaway local [anvil](https://book.getfoundry.sh/anvil/) chain: it starts anvil, has
+you connect (adding the local network via `--rpc-url`), funds your address with a cheat code, then
+walks through sign-message, sign-typed-data, send-transaction, and an ERC-20 transfer — verifying
+each result on-chain with `cast`. You only approve each step in the wallet; no testnet, no faucet,
+no real funds. Requires foundry (`anvil`/`cast`/`forge`) + `jq` and a `cargo build`.
+
 ## Status
 
 Working today: the one-shot CLI for **EVM and TRON** (connect, send/trigger/deploy,
