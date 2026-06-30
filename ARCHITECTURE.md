@@ -55,10 +55,17 @@ in-page router dispatches `/connect/:id` and `/sign/:id`). CORS mirrors the refe
 TS adaptors interoperate.
 
 `build_router_with` / `Engine::start_with` add an **extension point**: a caller can merge its
-own routes onto the core bridge, sharing the same `PendingStore`. The e2e test harness uses it
-to mount `/api/test/*` rather than forking the router, and a future multi-client daemon (see
-[Roadmap](#roadmap)) would mount its `/api/v1` control API the same way. The merged routes carry
-their own state and middleware; the core CORS layer applies only to the core routes.
+own routes onto the core bridge, sharing the same `PendingStore`. Two callers use it today: the
+`serve` control API mounts `/api/v1/*` (the long-lived mode language bindings drive — see
+[Roadmap](#roadmap)), and the e2e test harness mounts `/api/test/*`, both rather than forking the
+router. The merged routes carry their own state and middleware; the core CORS layer applies only
+to the core routes.
+
+A request's approval page (`/connect` vs `/sign`) is reported by the request itself via
+`Request::url_kind`, and a request is reconstructed from its wire JSON via `Request::from_json`
+(the inverse of its `Serialize`). Both live on the core trait, so `Engine::prepare`/`submit`, the
+`serve` control API, and the e2e harness all stay chain-agnostic — there is one source of truth
+for the discriminator and the wire shape, shared across EVM and TRON.
 
 ## Core abstractions (`browser-web3-signer-core`)
 
@@ -189,13 +196,18 @@ child you spawned).
 
 ### Phases
 
-- **Phase 4 — language bindings over a managed bridge subprocess.**
-  - *Rust:* already covered — `EvmSigner` / `TronSigner` are the reusable, persistent-session
-    API. May add a documented reuse example.
-  - *TypeScript:* port `transport.ts` (viem `CustomTransport`) + `viem-account.ts` (hybrid
-    account), and optionally an ethers `Signer`/`Provider`, as thin clients that spawn and manage
-    a Rust bridge subprocess. This is the integration with real demand.
-  - *Go:* same shape as TS, if/when needed.
+- **Phase 4 — language bindings over a managed bridge subprocess.** ✅ done.
+  - *Control API:* `serve --chain evm|tron` runs the bridge on the preferred (stable) port for
+    the process lifetime and exposes `POST /api/v1/request` (create → open browser → block →
+    return result) + `GET /api/v1/health`, mounted via the `start_with` extension point. It
+    prints the bound port to stdout, then blocks. Generic over the chain's request type.
+  - *Rust:* `EvmSigner` / `TronSigner` are the reusable, persistent-session API (hold one and
+    reuse it).
+  - *TypeScript:* [`ts/`](ts) — `WalletSignerClient` spawns and supervises the `serve`
+    subprocess and drives it over `/api/v1`, plus a viem `CustomTransport` + hybrid account
+    (`transport.ts`, `viem-account.ts`) ported from the reference. Tested against the real
+    subprocess with a fake-wallet stand-in.
+  - *Go:* same shape as TS, if/when needed (not yet built).
 - **Phase 5 — full multi-client daemon (deferred; build only on demand).** A standalone
   `daemon start|stop|status` with a discovery file (`{port, pid, token}`), bearer-token auth, a
   control API (`POST /api/v1/…`), a request queue serializing human approval, a session cache,

@@ -77,6 +77,18 @@ Networks: `mainnet`, `shasta`, `nile`. Signing and transaction building happen b
 in TronLink's `tronWeb`; the Rust side only routes requests and does read-only TronGrid
 queries.
 
+### Serve (control API for language bindings)
+
+```sh
+browser-web3-signer serve --chain evm     # prints the bound port, then blocks
+```
+
+Runs the bridge on a stable port for the process lifetime and exposes `POST /api/v1/request`
+(body is a request `{type, …}`; opens the wallet, blocks, returns `{success, result}` or
+`{success:false, error, code?}`) and `GET /api/v1/health`. A language binding spawns this and
+drives the wallet over HTTP — see the [TypeScript binding](ts). Honors the global `--browser` /
+`--print` flags for how the approval page opens.
+
 ## Configuration (env)
 
 | Variable | Default | Meaning |
@@ -114,15 +126,21 @@ message + typed-data signing, read-only balances), with an embedded approval UI 
 testing the full browser interaction flow. Run with `just e2e-setup && just e2e` (one-time
 `npm install` + Chromium download, then `just e2e`).
 
-Persistent sessions today: hold a single `EvmSigner` / `TronSigner` and reuse it — it keeps the
-bridge on a stable port for its lifetime, so the wallet skips the reconnect prompt on later calls
-(the same pattern the reference's long-lived `WalletSigner` uses; no daemon required).
+**Control API** (`serve`): `browser-web3-signer serve --chain evm|tron` runs the bridge on a
+stable port for its lifetime and exposes `POST /api/v1/request` + `GET /api/v1/health`, printing
+the bound port to stdout. This is the long-lived mode language bindings spawn and drive.
 
-Planned: **TypeScript adaptors** (viem transport + ethers signer) as thin clients that spawn and
-manage a Rust bridge subprocess — giving a TS consumer the same persistent session across the
-language boundary. A full multi-client daemon (discovery file, auth, request queue, SSE) is
-deferred: it is only warranted if several independent processes must share one connected tab.
-See [ARCHITECTURE.md](ARCHITECTURE.md#roadmap).
+**TypeScript binding** ([`ts/`](ts)): a `WalletSignerClient` that spawns and supervises the
+`serve` subprocess and drives it over `/api/v1`, plus a **viem** transport + hybrid account — so a
+TS program signs with the user's browser wallet, and the persistent tab skips the reconnect prompt
+across calls.
+
+Persistent sessions in Rust: hold a single `EvmSigner` / `TronSigner` and reuse it — same stable
+port, same effect (the pattern the reference's long-lived `WalletSigner` uses; no daemon required).
+
+Deferred: a full multi-client daemon (discovery file, auth, request queue, SSE), warranted only if
+several independent processes must share one connected tab. See
+[ARCHITECTURE.md](ARCHITECTURE.md#roadmap).
 
 ## License
 
