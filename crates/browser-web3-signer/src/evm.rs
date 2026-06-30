@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use browser_web3_signer_core::{BindPort, BrowserChoice, Url};
 use browser_web3_signer_evm::{
-    Address, CallData, ChainId, EvmRequest, EvmSigner, SendTransactionParams, Signature, TxHash,
-    TypedData, Wei, config,
+    Address, CallData, ChainId, ConnectParams, EvmRequest, EvmSigner, SendTransactionParams,
+    Signature, TxHash, TypedData, Wei, config,
 };
 use clap::Subcommand;
 use serde_json::json;
@@ -24,6 +24,13 @@ pub(crate) enum EvmCommand {
         /// Expected wallet address; the UI rejects a mismatch.
         #[arg(long)]
         address: Option<Address>,
+        /// RPC URL for a custom/non-built-in chain (e.g. a local anvil node). The approval page
+        /// adds the chain to the wallet via `wallet_addEthereumChain` using this endpoint.
+        #[arg(long = "rpc-url")]
+        rpc_url: Option<Url>,
+        /// Display name for the custom chain (used with `--rpc-url`).
+        #[arg(long = "chain-name")]
+        chain_name: Option<String>,
     },
     /// Send ETH or call a contract.
     SendTransaction {
@@ -127,8 +134,19 @@ impl EvmCli {
         flow::await_signed(prepared, &self.ctx.open, &self.signer, what).await
     }
 
-    async fn connect(&self, chain: Option<ChainId>, address: Option<Address>) -> Result<()> {
-        let req = EvmRequest::connect(Some(self.chain_or_default(chain)), address);
+    async fn connect(
+        &self,
+        chain: Option<ChainId>,
+        address: Option<Address>,
+        rpc_url: Option<Url>,
+        chain_name: Option<String>,
+    ) -> Result<()> {
+        let req = EvmRequest::connect_with(ConnectParams {
+            chain_id: Some(self.chain_or_default(chain)),
+            address,
+            rpc_url,
+            chain_name,
+        });
         let addr: Address = self.approve(req, "address").await?;
         match self.ctx.output {
             OutputFormat::Text => println!("Connected: {addr}"),
@@ -197,7 +215,12 @@ impl EvmCli {
 pub(crate) async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
     let cli = EvmCli::new(ctx);
     match cmd {
-        EvmCommand::Connect { chain, address } => cli.connect(chain, address).await,
+        EvmCommand::Connect {
+            chain,
+            address,
+            rpc_url,
+            chain_name,
+        } => cli.connect(chain, address, rpc_url, chain_name).await,
         EvmCommand::SendTransaction {
             to,
             from,

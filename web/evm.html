@@ -748,16 +748,23 @@
             await rpc("wallet_switchEthereumChain", [{ chainId: hexId }]);
           } catch (err) {
             if (err && err.code === 4902) {
+              // Prefer a built-in chain entry; fall back to metadata the request carries
+              // (lets a custom/local chain like anvil be added via --rpc-url).
               var chain = CHAINS[chainId];
-              if (chain) {
+              var rpcUrl = (chain && chain.rpc) || request.rpcUrl;
+              if (rpcUrl) {
+                var name = (chain && chain.name) || request.chainName || ("Chain " + chainId);
+                var symbol = (chain && chain.symbol) || "ETH";
+                var decimals = (chain && chain.decimals) || 18;
+                var explorer = chain && chain.explorer;
                 await rpc("wallet_addEthereumChain", [{
                   chainId: hexId,
-                  chainName: chain.name,
-                  nativeCurrency: { name: chain.name, symbol: chain.symbol, decimals: chain.decimals },
-                  rpcUrls: [chain.rpc],
-                  blockExplorerUrls: chain.explorer ? [chain.explorer] : undefined,
+                  chainName: name,
+                  nativeCurrency: { name: name, symbol: symbol, decimals: decimals },
+                  rpcUrls: [rpcUrl],
+                  blockExplorerUrls: explorer ? [explorer] : undefined,
                 }]);
-              } else throw new Error("Unknown chain ID: " + chainId);
+              } else throw new Error("Unknown chain ID " + chainId + " and no rpcUrl provided");
             } else throw err;
           }
         }

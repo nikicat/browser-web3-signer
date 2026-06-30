@@ -4,7 +4,7 @@
 //! The request *kind* is the enum variant itself (serde-tagged via `type`), not a stored
 //! string — there is one source of truth for the discriminator.
 
-use browser_web3_signer_core::{Request, RequestMeta, UrlKind};
+use browser_web3_signer_core::{Request, RequestMeta, Url, UrlKind};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -40,6 +40,16 @@ pub enum EvmRequest {
         /// Expected address; the UI rejects a mismatch.
         #[serde(skip_serializing_if = "Option::is_none")]
         address: Option<Address>,
+        /// RPC URL for a custom/non-built-in chain. When the wallet doesn't recognize `chain_id`,
+        /// the approval page adds it via `wallet_addEthereumChain` using this URL (e.g. a local
+        /// anvil node). Only needed at connect time — once added, later switches just succeed.
+        /// A `Url`, so a malformed endpoint fails at the boundary, not in the browser.
+        #[serde(rename = "rpcUrl", skip_serializing_if = "Option::is_none")]
+        rpc_url: Option<Url>,
+        /// Human-readable name for a custom chain added via `wallet_addEthereumChain` (freeform
+        /// display text, so a plain `String`).
+        #[serde(rename = "chainName", skip_serializing_if = "Option::is_none")]
+        chain_name: Option<String>,
     },
     /// Transaction approval request → `/sign/:id`.
     SendTransaction {
@@ -135,7 +145,12 @@ impl Request for EvmRequest {
             .map(ChainId);
 
         match typ {
-            "connect" => Ok(Self::connect(chain_id, opt_parsed(body, "address")?)),
+            "connect" => Ok(Self::connect_with(ConnectParams {
+                chain_id,
+                address: opt_parsed(body, "address")?,
+                rpc_url: opt_parsed(body, "rpcUrl")?,
+                chain_name: str_opt(body, "chainName"),
+            })),
             "send_transaction" => Ok(Self::send_transaction(SendTransactionParams {
                 to: req_parsed(body, "to")?,
                 from: opt_parsed(body, "from")?,
@@ -166,6 +181,19 @@ impl Request for EvmRequest {
     }
 }
 
+/// Parameters for building a `connect` request, including optional custom-chain metadata.
+#[derive(Debug, Clone, Default)]
+pub struct ConnectParams {
+    /// Chain to connect/switch to.
+    pub chain_id: Option<ChainId>,
+    /// Expected wallet address; the UI rejects a mismatch.
+    pub address: Option<Address>,
+    /// RPC URL for adding a custom/non-built-in chain (e.g. a local anvil node).
+    pub rpc_url: Option<Url>,
+    /// Human-readable name for the custom chain.
+    pub chain_name: Option<String>,
+}
+
 /// Parameters for building a `send_transaction` request (typed; built by the caller/CLI).
 #[derive(Debug, Clone)]
 pub struct SendTransactionParams {
@@ -188,12 +216,25 @@ pub struct SendTransactionParams {
 }
 
 impl EvmRequest {
-    /// Build a `connect` request with a fresh id.
+    /// Build a `connect` request with a fresh id (built-in chain, no custom RPC).
     pub fn connect(chain_id: Option<ChainId>, address: Option<Address>) -> Self {
-        Self::Connect {
-            meta: RequestMeta::new(),
+        Self::connect_with(ConnectParams {
             chain_id,
             address,
+            rpc_url: None,
+            chain_name: None,
+        })
+    }
+
+    /// Build a `connect` request from full parameters, including optional custom-chain metadata
+    /// (`rpc_url` / `chain_name`) used to add a non-built-in chain like a local anvil node.
+    pub fn connect_with(params: ConnectParams) -> Self {
+        Self::Connect {
+            meta: RequestMeta::new(),
+            chain_id: params.chain_id,
+            address: params.address,
+            rpc_url: params.rpc_url,
+            chain_name: params.chain_name,
         }
     }
 
@@ -253,6 +294,13 @@ fn json_field(body: &serde_json::Value, key: &str) -> serde_json::Value {
     body.get(key)
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// Read an optional freeform string field (no parse/validation), `None` if absent.
+fn str_opt(body: &serde_json::Value, key: &str) -> Option<String> {
+    body.get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
 }
 
 /// Parse a required string field into a domain type `T`, mapping failures to a reason.

@@ -13,4 +13,4 @@ pub use domain::{
     Address, CallData, ChainId, Decimals, Signature, Symbol, TokenAmount, TxHash, Wei,
 };
 pub use signer::{EvmSigner, WEB_UI};
-pub use types::{EvmRequest, SendTransactionParams, TypedData};
+pub use types::{ConnectParams, EvmRequest, SendTransactionParams, TypedData};
