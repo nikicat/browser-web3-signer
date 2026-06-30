@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use uuid::Uuid;
 
-use crate::browser::{self, BrowserChoice, UrlKind};
+use crate::browser::{self, BrowserChoice};
 use crate::config::{BindPort, Port};
 use crate::errors::{Result, SignerError};
 use crate::http::build_router_with;
@@ -109,9 +109,13 @@ impl<R: Request> Engine<R> {
 
     /// Register a request and build its approval URL, without opening a browser. The returned
     /// future resolves with the signed result. Starts the bridge if needed.
-    pub async fn prepare(&self, request: R, kind: UrlKind) -> Result<Prepared> {
+    ///
+    /// The approval page (`/connect` vs `/sign`) comes from the request itself
+    /// ([`Request::url_kind`]), so the kind is never passed or re-derived separately.
+    pub async fn prepare(&self, request: R) -> Result<Prepared> {
         let port = self.start().await?;
         let id = request.id();
+        let kind = request.url_kind();
         let rx = self.store.create(request);
         let url = browser::build_url(port, id, kind);
 
@@ -137,10 +141,10 @@ impl<R: Request> Engine<R> {
         browser::open(url, &self.browser);
     }
 
-    /// Register a request, open the browser, and await the signed result. The library/daemon
+    /// Register a request, open the browser, and await the signed result. The library/binding
     /// path; the CLI uses [`Engine::prepare`] so it can print the URL before opening.
-    pub async fn submit(&self, request: R, kind: UrlKind) -> Result<String> {
-        let prepared = self.prepare(request, kind).await?;
+    pub async fn submit(&self, request: R) -> Result<String> {
+        let prepared = self.prepare(request).await?;
         self.open(&prepared.url);
         prepared.result.await
     }

@@ -136,14 +136,6 @@ pub enum TronRequest {
 }
 
 impl TronRequest {
-    /// Which page the browser should open.
-    pub const fn url_kind(&self) -> UrlKind {
-        match self {
-            Self::Connect { .. } => UrlKind::Connect,
-            _ => UrlKind::Sign,
-        }
-    }
-
     const fn meta(&self) -> &RequestMeta {
         match self {
             Self::Connect { meta, .. }
@@ -159,6 +151,69 @@ impl TronRequest {
 impl Request for TronRequest {
     fn id(&self) -> Uuid {
         self.meta().id
+    }
+
+    fn url_kind(&self) -> UrlKind {
+        match self {
+            Self::Connect { .. } => UrlKind::Connect,
+            _ => UrlKind::Sign,
+        }
+    }
+
+    fn from_json(body: &serde_json::Value) -> Result<Self, String> {
+        let typ = str_field(body, "type")?;
+        let network = opt_parsed(body, "network")?;
+
+        match typ {
+            "connect" => Ok(Self::connect(network, opt_parsed(body, "address")?)),
+            "send_transaction" => Ok(Self::send_transaction(SendTransactionParams {
+                to: req_parsed(body, "to")?,
+                from: opt_parsed(body, "from")?,
+                amount: req_parsed(body, "amount")?,
+                data: opt_parsed(body, "data")?,
+                network,
+            })),
+            "trigger_contract" => Ok(Self::trigger_contract(TriggerContractParams {
+                contract_address: req_parsed(body, "contractAddress")?,
+                from: opt_parsed(body, "from")?,
+                function_selector: str_field(body, "functionSelector")?.to_owned(),
+                parameters: body.get("parameters").cloned(),
+                fee_limit: opt_parsed(body, "feeLimit")?,
+                call_value: opt_parsed(body, "callValue")?,
+                network,
+            })),
+            "deploy_contract" => Ok(Self::deploy_contract(DeployContractParams {
+                abi: body.get("abi").cloned().ok_or("missing field 'abi'")?,
+                bytecode: req_parsed(body, "bytecode")?,
+                contract_name: body
+                    .get("contractName")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned),
+                parameters: body.get("parameters").cloned(),
+                from: opt_parsed(body, "from")?,
+                fee_limit: opt_parsed(body, "feeLimit")?,
+                call_value: opt_parsed(body, "callValue")?,
+                origin_energy_limit: opt_parsed(body, "originEnergyLimit")?,
+                user_fee_percentage: opt_parsed(body, "userFeePercentage")?,
+                network,
+            })),
+            "sign_message" => Ok(Self::sign_message(
+                str_field(body, "message")?.to_owned(),
+                opt_parsed(body, "address")?,
+                network,
+            )),
+            "sign_typed_data" => Ok(Self::sign_typed_data(
+                TypedData {
+                    domain: json_field(body, "domain"),
+                    types: json_field(body, "types"),
+                    primary_type: str_field(body, "primaryType")?.to_owned(),
+                    message: json_field(body, "message"),
+                },
+                opt_parsed(body, "address")?,
+                network,
+            )),
+            other => Err(format!("unknown request type: {other}")),
+        }
     }
 }
 
@@ -299,69 +354,6 @@ impl TronRequest {
             network,
             typed_data,
             address,
-        }
-    }
-
-    /// Build a request from a JSON body, the inverse of the wire serialization: the `type`
-    /// discriminator selects the variant, the remaining fields fill it. Errors (as a
-    /// human-readable reason) on an unknown `type`, a missing required field, or a field that
-    /// fails its domain-type parse.
-    ///
-    /// One source of truth for the request wire shape, shared by the control API (`serve`) and
-    /// the e2e harness so they cannot drift.
-    pub fn from_json(body: &serde_json::Value) -> Result<Self, String> {
-        let typ = str_field(body, "type")?;
-        let network = opt_parsed(body, "network")?;
-
-        match typ {
-            "connect" => Ok(Self::connect(network, opt_parsed(body, "address")?)),
-            "send_transaction" => Ok(Self::send_transaction(SendTransactionParams {
-                to: req_parsed(body, "to")?,
-                from: opt_parsed(body, "from")?,
-                amount: req_parsed(body, "amount")?,
-                data: opt_parsed(body, "data")?,
-                network,
-            })),
-            "trigger_contract" => Ok(Self::trigger_contract(TriggerContractParams {
-                contract_address: req_parsed(body, "contractAddress")?,
-                from: opt_parsed(body, "from")?,
-                function_selector: str_field(body, "functionSelector")?.to_owned(),
-                parameters: body.get("parameters").cloned(),
-                fee_limit: opt_parsed(body, "feeLimit")?,
-                call_value: opt_parsed(body, "callValue")?,
-                network,
-            })),
-            "deploy_contract" => Ok(Self::deploy_contract(DeployContractParams {
-                abi: body.get("abi").cloned().ok_or("missing field 'abi'")?,
-                bytecode: req_parsed(body, "bytecode")?,
-                contract_name: body
-                    .get("contractName")
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned),
-                parameters: body.get("parameters").cloned(),
-                from: opt_parsed(body, "from")?,
-                fee_limit: opt_parsed(body, "feeLimit")?,
-                call_value: opt_parsed(body, "callValue")?,
-                origin_energy_limit: opt_parsed(body, "originEnergyLimit")?,
-                user_fee_percentage: opt_parsed(body, "userFeePercentage")?,
-                network,
-            })),
-            "sign_message" => Ok(Self::sign_message(
-                str_field(body, "message")?.to_owned(),
-                opt_parsed(body, "address")?,
-                network,
-            )),
-            "sign_typed_data" => Ok(Self::sign_typed_data(
-                TypedData {
-                    domain: json_field(body, "domain"),
-                    types: json_field(body, "types"),
-                    primary_type: str_field(body, "primaryType")?.to_owned(),
-                    message: json_field(body, "message"),
-                },
-                opt_parsed(body, "address")?,
-                network,
-            )),
-            other => Err(format!("unknown request type: {other}")),
         }
     }
 }

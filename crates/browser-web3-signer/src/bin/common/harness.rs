@@ -17,32 +17,24 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use browser_web3_signer_core::{
-    BindPort, BrowserChoice, Engine, Request, Shared, SignerError, UrlKind,
-};
+use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Request, Shared, SignerError};
 use serde_json::Value;
 use uuid::Uuid;
 
-/// Builds a chain request from the test-harness JSON body, or returns a human-readable reason.
-pub(crate) type RequestBuilder<R> = fn(&Value) -> Result<R, String>;
-
-/// Harness state: the chain engine, a builder for its requests, and a peekable results cache.
+/// Harness state: the chain engine and a peekable results cache.
 struct HarnessState<R: Request> {
     /// The chain bridge engine (owns the store).
     engine: Shared<Engine<R>>,
-    /// Maps the test JSON into a chain request.
-    build_request: RequestBuilder<R>,
     /// Completed outcomes, cached so `/api/test/result/:id` can peek without consuming.
     results: Shared<Mutex<HashMap<Uuid, Value>>>,
 }
 
 // Manual `Clone` so the `axum` state can be cloned per-request without requiring `R: Clone`
-// on the wrapper (the engine/results are behind `Shared`, the builder is a `fn` pointer).
+// on the wrapper (everything inside is behind `Shared`).
 impl<R: Request> Clone for HarnessState<R> {
     fn clone(&self) -> Self {
         Self {
             engine: self.engine.share(),
-            build_request: self.build_request,
             results: self.results.share(),
         }
     }
@@ -66,12 +58,11 @@ async fn create_request<R: Request>(
     State(state): State<HarnessState<R>>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
-    let req = (state.build_request)(&body).map_err(|_e| StatusCode::BAD_REQUEST)?;
-    let kind = url_kind_of(&body);
+    let req = R::from_json(&body).map_err(|_e| StatusCode::BAD_REQUEST)?;
 
     let prepared = state
         .engine
-        .prepare(req, kind)
+        .prepare(req)
         .await
         .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -101,15 +92,6 @@ async fn test_result<R: Request>(
     Json(serde_json::json!(null))
 }
 
-/// `connect` opens `/connect/:id`; everything else opens `/sign/:id`. The harness only needs the
-/// `type` discriminator to pick, so it reads it from the body rather than the typed request.
-fn url_kind_of(body: &Value) -> UrlKind {
-    match body.get("type").and_then(Value::as_str) {
-        Some("connect") => UrlKind::Connect,
-        _ => UrlKind::Sign,
-    }
-}
-
 /// Build the test-only routes mounted onto the bridge via `Engine::start_with`.
 fn build_extra_routes<R: Request>(state: HarnessState<R>) -> Router {
     Router::new()
@@ -121,11 +103,8 @@ fn build_extra_routes<R: Request>(state: HarnessState<R>) -> Router {
 /// Run a chain harness to completion: start the bridge with the test routes merged in, print the
 /// bound port to stdout (for the Node fixture), and block forever until the process is killed.
 ///
-/// `web_ui` is the chain's embedded approval HTML; `build_request` maps test JSON to its request.
-pub(crate) async fn run<R: Request>(
-    web_ui: &'static str,
-    build_request: RequestBuilder<R>,
-) -> anyhow::Result<()> {
+/// `web_ui` is the chain's embedded approval HTML; requests are parsed via [`Request::from_json`].
+pub(crate) async fn run<R: Request>(web_ui: &'static str) -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             std::env::var("RUST_LOG")
@@ -142,7 +121,6 @@ pub(crate) async fn run<R: Request>(
     ));
     let state = HarnessState {
         engine: engine.share(),
-        build_request,
         results: Shared::new(Mutex::new(HashMap::new())),
     };
 

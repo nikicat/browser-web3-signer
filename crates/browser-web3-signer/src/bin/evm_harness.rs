@@ -11,5 +11,5 @@ use browser_web3_signer_evm::{EvmRequest, WEB_UI};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    harness::run::<EvmRequest>(WEB_UI, EvmRequest::from_json).await
+    harness::run::<EvmRequest>(WEB_UI).await
 }

@@ -105,14 +105,6 @@ pub enum EvmRequest {
 }
 
 impl EvmRequest {
-    /// Which page the browser should open for this request.
-    pub const fn url_kind(&self) -> UrlKind {
-        match self {
-            Self::Connect { .. } => UrlKind::Connect,
-            _ => UrlKind::Sign,
-        }
-    }
-
     const fn meta(&self) -> &RequestMeta {
         match self {
             Self::Connect { meta, .. }
@@ -126,6 +118,51 @@ impl EvmRequest {
 impl Request for EvmRequest {
     fn id(&self) -> Uuid {
         self.meta().id
+    }
+
+    fn url_kind(&self) -> UrlKind {
+        match self {
+            Self::Connect { .. } => UrlKind::Connect,
+            _ => UrlKind::Sign,
+        }
+    }
+
+    fn from_json(body: &serde_json::Value) -> Result<Self, String> {
+        let typ = str_field(body, "type")?;
+        let chain_id = body
+            .get("chainId")
+            .and_then(serde_json::Value::as_u64)
+            .map(ChainId);
+
+        match typ {
+            "connect" => Ok(Self::connect(chain_id, opt_parsed(body, "address")?)),
+            "send_transaction" => Ok(Self::send_transaction(SendTransactionParams {
+                to: req_parsed(body, "to")?,
+                from: opt_parsed(body, "from")?,
+                value: opt_parsed(body, "value")?,
+                data: opt_parsed(body, "data")?,
+                chain_id,
+                gas_limit: opt_parsed(body, "gasLimit")?,
+                max_fee_per_gas: opt_parsed(body, "maxFeePerGas")?,
+                max_priority_fee_per_gas: opt_parsed(body, "maxPriorityFeePerGas")?,
+            })),
+            "sign_message" => Ok(Self::sign_message(
+                str_field(body, "message")?.to_owned(),
+                opt_parsed(body, "address")?,
+                chain_id,
+            )),
+            "sign_typed_data" => Ok(Self::sign_typed_data(
+                TypedData {
+                    domain: json_field(body, "domain"),
+                    types: json_field(body, "types"),
+                    primary_type: str_field(body, "primaryType")?.to_owned(),
+                    message: json_field(body, "message"),
+                },
+                opt_parsed(body, "address")?,
+                chain_id,
+            )),
+            other => Err(format!("unknown request type: {other}")),
+        }
     }
 }
 
@@ -200,51 +237,6 @@ impl EvmRequest {
             chain_id,
             typed_data,
             address,
-        }
-    }
-
-    /// Build a request from a JSON body, the inverse of the wire serialization: the `type`
-    /// discriminator selects the variant, the remaining fields fill it. Errors (as a
-    /// human-readable reason) on an unknown `type`, a missing required field, or a field that
-    /// fails its domain-type parse.
-    ///
-    /// One source of truth for the request wire shape, shared by the control API (`serve`) and
-    /// the e2e harness so they cannot drift.
-    pub fn from_json(body: &serde_json::Value) -> Result<Self, String> {
-        let typ = str_field(body, "type")?;
-        let chain_id = body
-            .get("chainId")
-            .and_then(serde_json::Value::as_u64)
-            .map(ChainId);
-
-        match typ {
-            "connect" => Ok(Self::connect(chain_id, opt_parsed(body, "address")?)),
-            "send_transaction" => Ok(Self::send_transaction(SendTransactionParams {
-                to: req_parsed(body, "to")?,
-                from: opt_parsed(body, "from")?,
-                value: opt_parsed(body, "value")?,
-                data: opt_parsed(body, "data")?,
-                chain_id,
-                gas_limit: opt_parsed(body, "gasLimit")?,
-                max_fee_per_gas: opt_parsed(body, "maxFeePerGas")?,
-                max_priority_fee_per_gas: opt_parsed(body, "maxPriorityFeePerGas")?,
-            })),
-            "sign_message" => Ok(Self::sign_message(
-                str_field(body, "message")?.to_owned(),
-                opt_parsed(body, "address")?,
-                chain_id,
-            )),
-            "sign_typed_data" => Ok(Self::sign_typed_data(
-                TypedData {
-                    domain: json_field(body, "domain"),
-                    types: json_field(body, "types"),
-                    primary_type: str_field(body, "primaryType")?.to_owned(),
-                    message: json_field(body, "message"),
-                },
-                opt_parsed(body, "address")?,
-                chain_id,
-            )),
-            other => Err(format!("unknown request type: {other}")),
         }
     }
 }

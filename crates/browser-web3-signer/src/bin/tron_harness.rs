@@ -11,5 +11,5 @@ use browser_web3_signer_tron::{TronRequest, WEB_UI};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    harness::run::<TronRequest>(WEB_UI, TronRequest::from_json).await
+    harness::run::<TronRequest>(WEB_UI).await
 }

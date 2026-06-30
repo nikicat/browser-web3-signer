@@ -83,8 +83,7 @@ impl TronSigner {
 
     /// Register a request without opening a browser, returning the approval URL and result future.
     pub async fn prepare(&self, request: TronRequest) -> Result<Prepared> {
-        let kind = request.url_kind();
-        self.engine.prepare(request, kind).await
+        self.engine.prepare(request).await
     }
 
     /// Open a URL via the engine's configured browser.
@@ -102,8 +101,7 @@ impl TronSigner {
     }
 
     async fn submit(&self, request: TronRequest) -> Result<String> {
-        let kind = request.url_kind();
-        self.engine.submit(request, kind).await
+        self.engine.submit(request).await
     }
 
     /// Connect TronLink, returning the connected address.
