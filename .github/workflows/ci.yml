@@ -68,8 +68,8 @@ jobs:
           key: ${{ runner.os }}-e2e-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-e2e-
 
-      - name: Build e2e harness
-        run: cargo build --bin e2e-harness --features e2e --locked
+      - name: Build e2e harnesses
+        run: cargo build --bin evm-harness --bin tron-harness --features e2e --locked
 
       - name: Install Node deps + Chromium
         working-directory: tests/e2e-browser

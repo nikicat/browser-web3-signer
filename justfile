@@ -57,14 +57,14 @@ coverage-lcov:
 coverage-clean:
     cargo llvm-cov clean --workspace
 
-# Build the e2e harness (debug is fast enough for tests).
+# Build the e2e harness binaries (debug is fast enough for tests).
 e2e-build:
-    cargo build --bin e2e-harness --features e2e
+    cargo build --bin evm-harness --bin tron-harness --features e2e
 
 # One-time e2e setup: install Node deps and download Chromium.
 e2e-setup:
-    cd tests/e2e-browser && npm install
+    cd tests/e2e-browser && npm install && npx playwright install chromium
 
-# Run Playwright e2e tests against the Rust bridge.
+# Run Playwright e2e tests (EVM + TRON) against the Rust bridge.
 e2e: e2e-build
     cd tests/e2e-browser && npm test

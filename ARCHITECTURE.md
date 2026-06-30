@@ -167,6 +167,7 @@ pre-publish, multi-dependency workspace.
 - **Phase 5 — TypeScript adaptors.** A viem `CustomTransport` + hybrid account and an ethers
   `Signer`/`Provider`, both clients of the daemon API.
 - **Phase 6 — tests & docs.** Integration tests and a Playwright mock-wallet e2e against the
-  Rust bridge (✅ EVM, in [`tests/e2e-browser`](tests/e2e-browser); TRON pending), plus expanded
-  docs. The e2e suite drives the real bridge through a feature-gated harness binary that mounts
-  test-only routes via the `start_with` extension point above — the same hook the daemon reuses.
+  Rust bridge (✅ EVM + TRON, in [`tests/e2e-browser`](tests/e2e-browser)), plus expanded docs.
+  The e2e suite drives the real bridge through feature-gated harness binaries (`evm-harness`,
+  `tron-harness`, sharing generic plumbing) that mount test-only routes via the `start_with`
+  extension point above — the same hook the daemon reuses.

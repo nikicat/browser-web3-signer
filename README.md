@@ -109,9 +109,10 @@ rationale behind the key decisions.
 Working today: the one-shot CLI for **EVM and TRON** (connect, send/trigger/deploy,
 message + typed-data signing, read-only balances), with an embedded approval UI per chain.
 
-**E2E browser tests**: a Playwright suite drives a mock wallet against the real Rust bridge,
-testing the full browser interaction flow (connect, sign, reject, address mismatch, timeout).
-Run with `just e2e-setup && just e2e` (one-time `npm install`, then `just e2e`).
+**E2E browser tests**: a Playwright suite drives a mock wallet against the real Rust bridge for
+**both EVM and TRON** (connect, sign, send/trigger/deploy, reject, cancel, address mismatch),
+testing the full browser interaction flow. Run with `just e2e-setup && just e2e` (one-time
+`npm install` + Chromium download, then `just e2e`).
 
 Planned: an optional **daemon** mode exposing a local JSON API (persistent connected tab,
 request queue, session cache) for app/language integration, and **TypeScript adaptors**

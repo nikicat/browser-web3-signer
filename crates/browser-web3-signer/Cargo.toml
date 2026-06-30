@@ -11,8 +11,13 @@ name = "browser-web3-signer"
 path = "src/main.rs"
 
 [[bin]]
-name = "e2e-harness"
-path = "src/bin/e2e_harness.rs"
+name = "evm-harness"
+path = "src/bin/evm_harness.rs"
+required-features = ["e2e"]
+
+[[bin]]
+name = "tron-harness"
+path = "src/bin/tron_harness.rs"
 required-features = ["e2e"]
 
 [features]
