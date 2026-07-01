@@ -40,17 +40,19 @@ const server = http.createServer((req, res) => {
     const calls = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
     const INTERESTING = new Set([
       "eth_getBalance", "eth_sendTransaction", "eth_sendRawTransaction", "eth_estimateGas",
-      "eth_getTransactionCount",
+      "eth_getTransactionCount", "eth_chainId",
     ]);
     const methods = calls
       .filter((c) => c && c.method)
       .map((c) => (INTERESTING.has(c.method) ? `${c.method} ${JSON.stringify(c.params)}` : c.method));
 
     try {
-      const upstreamRes = await fetch(UPSTREAM, {
-        method: "POST",
+      // Preserve the request path + method so multi-endpoint APIs route correctly (TRON uses
+      // /wallet/* and /jsonrpc; EVM uses a single "/" path, so this stays correct there too).
+      const upstreamRes = await fetch(UPSTREAM + (req.url || ""), {
+        method: req.method,
         headers: { "Content-Type": "application/json" },
-        body: bodyRaw,
+        body: req.method === "GET" || req.method === "HEAD" ? undefined : bodyRaw,
       });
       const text = await upstreamRes.text();
 
@@ -65,16 +67,17 @@ const server = http.createServer((req, res) => {
         if (errs.length) rpcErr = "  ⚠ rpc-error: " + errs.join(", ");
         // For single (non-batch) balance/fee reads, echo the returned value.
         if (!Array.isArray(j) && j && j.result !== undefined && calls[0] &&
-            ["eth_getBalance", "eth_gasPrice", "eth_estimateGas", "eth_getTransactionCount"].includes(calls[0].method)) {
+            ["eth_getBalance", "eth_gasPrice", "eth_estimateGas", "eth_getTransactionCount", "eth_chainId"].includes(calls[0].method)) {
           resultNote = "  = " + JSON.stringify(j.result);
         }
       } catch { /* non-JSON response */ }
 
       for (const m of methods) {
-        console.log(`${ts()}  → ${m}  [HTTP ${upstreamRes.status}]${resultNote}${rpcErr}`);
+        console.log(`${ts()}  ${req.method} ${req.url}  → ${m}  [HTTP ${upstreamRes.status}]${resultNote}${rpcErr}`);
       }
       if (methods.length === 0) {
-        console.log(`${ts()}  → (unparseable body: ${bodyRaw.slice(0, 120)})  [HTTP ${upstreamRes.status}]`);
+        // Non-JSON-RPC bodies (e.g. TRON's /wallet/* endpoints) — still log path so we see every hit.
+        console.log(`${ts()}  ${req.method} ${req.url}  [HTTP ${upstreamRes.status}] body: ${bodyRaw.slice(0, 80)}`);
       }
 
       res.writeHead(upstreamRes.status, {

@@ -154,6 +154,16 @@ embedded into the binary with `include_str!` and ported near-verbatim from the r
 the wire contract stays in sync. This is the one part that must remain JavaScript — it runs
 in the wallet's page context.
 
+**TODO (reuse):** the two pages still duplicate ~60% of their logic — the bridge protocol
+(`fetchPendingRequest` / `completeSuccess` / `completeError`), app state + view switching,
+`rejectWith` / address-matching, and the error contract (show in-page + retry, propagate only on
+explicit Reject/Cancel). That duplication has already cost us the same bug fixed twice (the
+"don't `completeError` on a recoverable catch" behaviour landed in `evm.html` long before
+`tron.html`). Extract the shared core into a `web/app-core.js` served via its own `/app-core.js`
+route (same `include_str!` model), leaving each page only a thin chain adapter
+(`{ connect, signMessage, signTypedData, sendTx }`) plus its markup, so the error contract and
+protocol are fixed once for both chains.
+
 ## Tooling
 
 CI (`.github/workflows/ci.yml`) runs fmt + taplo + `clippy -D warnings` + build + test on an

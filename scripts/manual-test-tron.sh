@@ -24,6 +24,7 @@
 #         WALLET_BROWSER=brave scripts/manual-test-tron.sh   # open approval pages in a specific browser
 #         TRE_PORT=9091 scripts/manual-test-tron.sh          # override the node port (also update TronLink)
 #         TRE_IMAGE=tronbox/tre:dev scripts/manual-test-tron.sh   # pin a different tre image
+#         DEBUG_RPC=1 scripts/manual-test-tron.sh            # log wallet→node traffic via a proxy
 
 set -euo pipefail
 
@@ -34,9 +35,19 @@ set -euo pipefail
 # on both amd64 and Apple Silicon (`latest` is arm64-only, which emulates — and misbehaves — on
 # amd64 hosts). Override with TRE_IMAGE.
 readonly TRE_IMAGE="${TRE_IMAGE:-tronbox/tre:1.0.3}"
-# The node's HTTP port. TronLink must point at this same port (see the one-time setup above).
+# The node's HTTP port — what TronLink talks to (see the one-time setup above).
 readonly NODE_PORT="${TRE_PORT:-9090}"
 readonly NODE_HOST="http://127.0.0.1:${NODE_PORT}"
+
+# DEBUG_RPC=1 inserts a logging proxy between TronLink and the node so every wallet request is
+# printed (method, path, JSON-RPC method + result) — e.g. to see whether TronLink queries
+# eth_chainId. In that mode tre runs on a back port and the proxy listens on NODE_PORT (so TronLink
+# still points at NODE_PORT); our own tool calls talk to the back port directly, keeping the proxy
+# log wallet-only. Without it, NODE_HOST and the backend are the same port.
+readonly DEBUG_RPC="${DEBUG_RPC:-}"
+if [ -n "$DEBUG_RPC" ]; then readonly NODE_BACKEND_PORT=$((NODE_PORT + 1)); else readonly NODE_BACKEND_PORT="$NODE_PORT"; fi
+readonly BACKEND_HOST="http://127.0.0.1:${NODE_BACKEND_PORT}"
+
 # Unique container name per run so parallel/leftover runs don't collide.
 readonly CONTAINER="bw3s-tre-manual-$$"
 
@@ -74,6 +85,8 @@ ADDR=""                        # the connected wallet address
 GENESIS_KEY=""                 # a pre-funded genesis private key (funds/deploys/mints)
 RECIPIENT=""                   # a second genesis address, used as the transfer target
 NODE_STARTED=""                # set once the container is running, so cleanup tears it down
+PROXY_PID=""                    # logging-proxy pid in DEBUG_RPC mode (cleanup kills it)
+PROXY_LOG=""                    # where the proxy writes wallet→node traffic
 
 # ---------------------------------------------------------------------------
 # Output helpers
@@ -104,12 +117,14 @@ signer() {
 # Run the local-node helper (TronWeb over the tre node). NODE_HOST + GENESIS_KEY are passed into
 # the child's environment via `env` (not a command-prefix assignment — NODE_HOST is readonly here,
 # which a prefix assignment can't set) so every subcommand talks to the right node and can sign.
-tool() { env NODE_HOST="$NODE_HOST" GENESIS_KEY="$GENESIS_KEY" node "$TOOL" "$@"; }
+tool() { env NODE_HOST="$BACKEND_HOST" GENESIS_KEY="$GENESIS_KEY" node "$TOOL" "$@"; }
 
 cleanup() {
+  [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null || true
   if [ -n "$NODE_STARTED" ]; then
     docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   fi
+  [ -n "$DEBUG_RPC" ] && [ -n "$PROXY_LOG" ] && info "RPC proxy log (wallet → node traffic): $PROXY_LOG"
   # The custom node you added to TronLink persists after the local chain is gone. Remind on every
   # exit path (success, die, or interrupt) so you can switch TronLink back to a real network.
   warn "Reminder: the local node (http://127.0.0.1:${NODE_PORT}) is now gone, but it stays in your"
@@ -155,9 +170,17 @@ preflight() {
 launch_node() {
   step "Starting local tron node ($TRE_IMAGE) on $NODE_HOST"
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-  docker run -d --rm --name "$CONTAINER" -p "${NODE_PORT}:9090" "$TRE_IMAGE" >/dev/null \
-    || die "failed to start the tre container (is port ${NODE_PORT} free?)"
+  # tre listens on the backend port (= NODE_PORT unless DEBUG_RPC, which puts a proxy on NODE_PORT).
+  docker run -d --rm --name "$CONTAINER" -p "${NODE_BACKEND_PORT}:9090" "$TRE_IMAGE" >/dev/null \
+    || die "failed to start the tre container (is port ${NODE_BACKEND_PORT} free?)"
   NODE_STARTED=1
+
+  if [ -n "$DEBUG_RPC" ]; then
+    PROXY_LOG="$(mktemp)"
+    node "$ROOT_DIR/scripts/rpc-log-proxy.mjs" "$NODE_PORT" "$BACKEND_HOST" > "$PROXY_LOG" 2>&1 &
+    PROXY_PID=$!
+    warn "DEBUG_RPC on: TronLink → proxy :$NODE_PORT → tre :$NODE_BACKEND_PORT; logging to $PROXY_LOG"
+  fi
   info "Node is booting in the background while you set up TronLink…"
 }
 
@@ -176,11 +199,13 @@ await_node_ready() {
     # Gate on real content (privateKeys), not just HTTP 200: early in startup the endpoint can
     # answer 200 with an empty/partial body, which would make the first `tool accounts` fail on
     # JSON parse. Only proceed once the accounts payload is actually populated.
-    if curl -sf -m3 "$NODE_HOST/admin/accounts-json" 2>/dev/null | grep -q privateKeys; then
+    # Poll the backend (tre) directly, not through the DEBUG_RPC proxy, so readiness checks don't
+    # pollute the wallet-only proxy log.
+    if curl -sf -m3 "$BACKEND_HOST/admin/accounts-json" 2>/dev/null | grep -q privateKeys; then
       # `|| echo 0` keeps this from tripping `set -e -o pipefail` while the node is still warming
       # up (getnowblock briefly returns non-JSON, failing jq); a standalone failing assignment
       # would exit the whole script with no error message.
-      blk="$(curl -sf -m3 -X POST "$NODE_HOST/wallet/getnowblock" 2>/dev/null | jq -r '.block_header.raw_data.number // 0' 2>/dev/null || echo 0)"
+      blk="$(curl -sf -m3 -X POST "$BACKEND_HOST/wallet/getnowblock" 2>/dev/null | jq -r '.block_header.raw_data.number // 0' 2>/dev/null || echo 0)"
       [ "${blk:-0}" -ge 1 ] && { ready=1; break; }
     fi
     sleep 2
@@ -207,15 +232,14 @@ await_node_ready() {
   [ "${first_bal:-0}" != "0" ] || die "genesis account not funded yet — re-run"
   ok "Node is up; genesis account funded ($(( first_bal / 1000000 )) TRX)"
 
-  # Verify the node's real chainId matches what we put in the TIP-712 domain / told the user to
-  # enter in TronLink. A mismatch (e.g. a custom TRE_IMAGE with a different genesis) would make the
-  # typed-data stage fail, so surface it loudly with the value to use.
+  # Verify the node's real chainId matches the TIP-712 domain value (and thus what inject-chainid.js
+  # writes into TronLink). A mismatch (e.g. a custom TRE_IMAGE with a different genesis) would make
+  # the typed-data stage fail, so surface it with the value to use.
   local node_cid
   node_cid="$(tool chain-id 2>/dev/null || echo "")"
   if [ -n "$node_cid" ] && [ "$node_cid" != "$TRON_CHAIN_ID" ]; then
-    warn "Node chainId is $node_cid but the TIP-712 domain uses $TRON_CHAIN_ID."
-    warn "Re-run with TRON_CHAIN_ID=$node_cid and set that same value in TronLink, or the"
-    warn "typed-data stage will fail."
+    warn "Node chainId is $node_cid but the TIP-712 domain uses $TRON_CHAIN_ID. For the TIP-712 stage,"
+    warn "re-run with TRON_CHAIN_ID=$node_cid and set CHAIN_ID_HEX in inject-chainid.js to 0x$(printf '%x' "$node_cid")."
   fi
 }
 
@@ -225,18 +249,19 @@ stage_setup_wallet() {
   info "TronLink can't be pointed at a node from the command line, so set it up manually:"
   info "  1. Open TronLink → Settings → Node → Add Node"
   info "  2. Set FullNode / SolidityNode / EventServer all to: $NODE_HOST"
-  info "  3. If there's a Chain ID field, set it to: $TRON_CHAIN_ID"
-  info "  4. Select that node as the active one, and keep it selected during this run."
+  info "  3. Select that node as the active one, and keep it selected during this run."
   info ""
-  info "IMPORTANT for the typed-data (TIP-712) stage: TronLink records a node's chainId when the"
-  info "node is ADDED (by querying its eth_chainId), and refuses to sign typed data if that stored"
-  info "chainId is null. The chainId is a fixed $TRON_CHAIN_ID (the node is up now, so it's"
-  info "queryable). If TIP-712 fails with \"Current chainId cannot be null\", REMOVE and RE-ADD the"
-  info "node while it's running so TronLink captures it. The other stages don't need this."
+  info "For the typed-data (TIP-712) stage only: TronLink never learns a custom node's chainId (it"
+  info "stores one only for its built-in networks), so TIP-712 fails with \"Current chainId cannot be"
+  info "null\" until you inject it once:"
+  info "  a. brave://extensions → Developer mode → TronLink → \"Inspect views: service worker\""
+  info "  b. In that console, paste scripts/tron/inject-chainid.js and run it (logs 'updated keys')."
+  info "  c. Reload TronLink (reload icon), re-unlock, and re-select the local node."
+  info "Skip a-c if you don't care about the TIP-712 stage (it's the only one that needs it)."
   info ""
   info "The approval pages show a '$CONNECT_NETWORK' label — that's cosmetic; what matters is that"
   info "TronLink's active node is the local one above."
-  prompt "Press Enter once TronLink is pointed at $NODE_HOST…"
+  prompt "Press Enter once TronLink is pointed at $NODE_HOST (and chainId injected, for TIP-712)…"
   read -r _ || true
 }
 
@@ -275,13 +300,17 @@ stage_sign_message() {
 }
 
 # TIP-712 typed data, verified by recovering the signer (via ethers; TIP-712 mirrors EIP-712).
+#
+# Requires the one-time chainId injection (see stage_setup_wallet + scripts/tron/inject-chainid.js):
+# TronLink stores a node's chainId only for its built-in networks and never queries a custom node's
+# eth_chainId, so without the injection its TIP-712 check throws "Current chainId cannot be null".
 stage_sign_typed_data() {
   step "3/5  Sign typed data (TIP-712)"
   local typed_file tsig
   typed_file="$(mktemp --suffix=.json)"
-  # The domain carries TRON_CHAIN_ID: TronLink requires a chainId and requires it to match the
-  # wallet's active chainId (mainnet's for a custom node — see the constant above). Signer and
-  # verifier (ethers) hash the same domain, so recovery matches.
+  # The domain's chainId must equal parseInt(<TronLink's stored node chainId>, 16). The inject helper
+  # stores 0xc845df2f, so TRON_CHAIN_ID (3360022319) matches. Signer and verifier (ethers) hash the
+  # same domain, so recovery matches.
   cat > "$typed_file" <<JSON
 {
   "domain": { "name": "Tron Test", "version": "1", "chainId": $TRON_CHAIN_ID },

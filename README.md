@@ -127,6 +127,12 @@ can't be pointed at a node from the CLI, so the one-time setup is to add `http:/
 a custom node in TronLink and select it; the script prints the exact steps. Same five stages,
 same "you only approve in the wallet" flow. Requires Docker, node ≥ 22.6, `forge`, `jq`, `cargo build`.
 
+One TRON-specific wrinkle: TronLink only knows a chainId for its built-in networks and never queries
+a custom node's, so **TIP-712 typed-data signing fails on a local node** (`"Current chainId cannot be
+null"`) until you inject it once via [`scripts/tron/inject-chainid.js`](scripts/tron/inject-chainid.js)
+(pasted into TronLink's service-worker console — the script's setup step explains it). The other four
+stages don't need it. `DEBUG_RPC=1` logs all wallet→node traffic through a proxy for diagnosis.
+
 ## Status
 
 Working today: the one-shot CLI for **EVM and TRON** (connect, send/trigger/deploy,
