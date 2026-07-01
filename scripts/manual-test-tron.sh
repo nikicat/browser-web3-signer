@@ -53,11 +53,12 @@ readonly TOKEN_XFER=100000000000000000000     # 100 tokens transferred by the wa
 # It does NOT route anything — TronLink builds/broadcasts against its own active node.
 readonly CONNECT_NETWORK="nile"
 
-# chainId embedded in the TIP-712 domain. TronLink requires the typed-data domain to carry a
-# chainId AND requires it to equal the wallet's *active* chainId — for a custom local node it
-# reports TRON mainnet's (728126428), since tre mimics mainnet. Override if your TronLink reports
-# a different value (shown in its "chainId X must match" error).
-readonly TRON_CHAIN_ID="${TRON_CHAIN_ID:-728126428}"
+# chainId embedded in the TIP-712 domain. TronLink refuses to sign typed data unless the domain's
+# chainId equals the wallet's active chainId, which TronLink derives from the node's eth_chainId
+# (the last 4 bytes of the genesis block hash). tre's genesis is fixed, so this is a constant
+# (0xc845df2f). await_node_ready re-reads it from the node and warns if a custom image differs;
+# override with TRON_CHAIN_ID if needed.
+readonly TRON_CHAIN_ID="${TRON_CHAIN_ID:-3360022319}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly ROOT_DIR
@@ -205,6 +206,17 @@ await_node_ready() {
   done
   [ "${first_bal:-0}" != "0" ] || die "genesis account not funded yet — re-run"
   ok "Node is up; genesis account funded ($(( first_bal / 1000000 )) TRX)"
+
+  # Verify the node's real chainId matches what we put in the TIP-712 domain / told the user to
+  # enter in TronLink. A mismatch (e.g. a custom TRE_IMAGE with a different genesis) would make the
+  # typed-data stage fail, so surface it loudly with the value to use.
+  local node_cid
+  node_cid="$(tool chain-id 2>/dev/null || echo "")"
+  if [ -n "$node_cid" ] && [ "$node_cid" != "$TRON_CHAIN_ID" ]; then
+    warn "Node chainId is $node_cid but the TIP-712 domain uses $TRON_CHAIN_ID."
+    warn "Re-run with TRON_CHAIN_ID=$node_cid and set that same value in TronLink, or the"
+    warn "typed-data stage will fail."
+  fi
 }
 
 # Walk the user through the one-time TronLink node setup before we open any approval page.
@@ -213,9 +225,17 @@ stage_setup_wallet() {
   info "TronLink can't be pointed at a node from the command line, so set it up manually:"
   info "  1. Open TronLink → Settings → Node → Add Node"
   info "  2. Set FullNode / SolidityNode / EventServer all to: $NODE_HOST"
-  info "  3. Select that node as the active one, and keep it selected during this run."
-  info "The approval pages will show a '$CONNECT_NETWORK' label — that's cosmetic; what matters is"
-  info "that TronLink's active node is the local one above."
+  info "  3. If there's a Chain ID field, set it to: $TRON_CHAIN_ID"
+  info "  4. Select that node as the active one, and keep it selected during this run."
+  info ""
+  info "IMPORTANT for the typed-data (TIP-712) stage: TronLink records a node's chainId when the"
+  info "node is ADDED (by querying its eth_chainId). This local chain is fresh each run, so if you"
+  info "added it in an earlier session its stored chainId is stale/null and TIP-712 will fail with"
+  info "\"Current chainId cannot be null\". If so, REMOVE and RE-ADD the node now (while it's running)"
+  info "so TronLink re-reads the current chainId ($TRON_CHAIN_ID). The other stages don't need this."
+  info ""
+  info "The approval pages show a '$CONNECT_NETWORK' label — that's cosmetic; what matters is that"
+  info "TronLink's active node is the local one above."
   prompt "Press Enter once TronLink is pointed at $NODE_HOST…"
   read -r _ || true
 }

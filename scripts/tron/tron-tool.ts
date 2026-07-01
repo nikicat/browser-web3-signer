@@ -17,6 +17,7 @@
 //
 // Commands:
 //   accounts                                 print {privateKeys, addresses} JSON from the node
+//   chain-id                                 print the node's eth_chainId (decimal) for TIP-712
 //   balance <addr>                           print TRX balance in SUN (integer)
 //   fund <addr> <sun>                        transfer SUN from GENESIS_KEY to <addr>; print txid
 //   deploy --abi <file> --bytecode <hex> [--name N]   deploy a contract; print its base58 address
@@ -105,6 +106,20 @@ const COMMANDS: Record<string, (pos: string[], flags: Flags) => Promise<void>> =
     if (privateKeys.length === 0) die("node returned no pre-funded accounts");
     const addresses = privateKeys.map((k) => TronWeb.address.fromPrivateKey(k));
     process.stdout.write(JSON.stringify({ privateKeys, addresses }) + "\n");
+  },
+
+  // The chainId TronLink uses for TIP-712: TRON's eth_chainId (the last 4 bytes of the genesis
+  // block hash), fetched from the node's Ethereum-compatible JSON-RPC. Printed as a decimal.
+  async "chain-id"() {
+    const res = await fetch(`${NODE_HOST}/jsonrpc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "eth_chainId", params: [], id: 1 }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const j = (await res.json()) as { result?: string };
+    if (!j.result) die("eth_chainId returned no result — is /jsonrpc enabled on the node?");
+    process.stdout.write(String(parseInt(j.result, 16)) + "\n");
   },
 
   async balance([addr]) {
