@@ -118,6 +118,15 @@ walks through sign-message, sign-typed-data, send-transaction, and an ERC-20 tra
 each result on-chain with `cast`. You only approve each step in the wallet; no testnet, no faucet,
 no real funds. Requires foundry (`anvil`/`cast`/`forge`) + `jq` and a `cargo build`.
 
+[`scripts/manual-test-tron.sh`](scripts/manual-test-tron.sh) is the TronLink counterpart, driven by
+a throwaway local [`tronbox/tre`](https://hub.docker.com/r/tronbox/tre) node in Docker. TRON has no
+`anvil`/`cast`, so a small TronWeb helper ([`scripts/tron/tron-tool.ts`](scripts/tron/tron-tool.ts),
+run directly by node ≥ 22.6) is the funding + verification layer: it funds your address from the
+node's genesis key, deploys/mints a demo TRC-20, and verifies signatures and receipts. TronLink
+can't be pointed at a node from the CLI, so the one-time setup is to add `http://127.0.0.1:9090` as
+a custom node in TronLink and select it; the script prints the exact steps. Same five stages,
+same "you only approve in the wallet" flow. Requires Docker, node ≥ 22.6, `forge`, `jq`, `cargo build`.
+
 ## Status
 
 Working today: the one-shot CLI for **EVM and TRON** (connect, send/trigger/deploy,
