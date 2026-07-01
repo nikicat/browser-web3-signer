@@ -68,3 +68,8 @@ e2e-setup:
 # Run Playwright e2e tests (EVM + TRON) against the Rust bridge.
 e2e: e2e-build
     cd tests/e2e-browser && npm test
+
+# Manual real-wallet test: drive your browser wallet against a local anvil chain.
+# Requires foundry (anvil/cast/forge) + jq. You approve each step in your wallet.
+manual-test-evm: build
+    ./scripts/manual-test-evm.sh
