@@ -148,16 +148,23 @@ preflight() {
   info "Using binary: $BIN"
 }
 
-# Start the tre node in Docker and block until it accepts RPC and has funded its genesis accounts
-# (sets GENESIS_KEY + RECIPIENT). tre funds the HD accounts a few blocks in, so we poll a balance.
-start_node() {
+# Launch the tre node in the background and return immediately. The node's ~15-30s boot then
+# overlaps the manual TronLink setup + connect approval (all human time), so it's mostly free —
+# await_node_ready() blocks on whatever boot time is left once you've finished setting up.
+launch_node() {
   step "Starting local tron node ($TRE_IMAGE) on $NODE_HOST"
   docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   docker run -d --rm --name "$CONTAINER" -p "${NODE_PORT}:9090" "$TRE_IMAGE" >/dev/null \
     || die "failed to start the tre container (is port ${NODE_PORT} free?)"
   NODE_STARTED=1
+  info "Node is booting in the background while you set up TronLink…"
+}
 
-  info "Waiting for the node to come up and fund its genesis accounts (usually ~15-40s)…"
+# Block until the node accepts RPC and has funded its genesis accounts (sets GENESIS_KEY +
+# RECIPIENT). tre funds the HD accounts a few blocks in, so we poll a balance.
+await_node_ready() {
+  step "Finishing node startup"
+  info "Waiting for the node to be ready and its genesis accounts funded…"
   # Poll with curl (fast, hard per-request timeout) rather than spawning the node helper each time:
   # a tronweb call against a half-ready node blocks on its own 30s timeout and would burn the whole
   # budget in a couple of attempts. Ready = accounts endpoint serves AND the chain has advanced a
@@ -165,12 +172,15 @@ start_node() {
   local blk="" ready=""
   local _
   for _ in $(seq 1 90); do
-    if curl -sf -m3 "$NODE_HOST/admin/accounts-json" >/dev/null 2>&1; then
+    # Gate on real content (privateKeys), not just HTTP 200: early in startup the endpoint can
+    # answer 200 with an empty/partial body, which would make the first `tool accounts` fail on
+    # JSON parse. Only proceed once the accounts payload is actually populated.
+    if curl -sf -m3 "$NODE_HOST/admin/accounts-json" 2>/dev/null | grep -q privateKeys; then
       # `|| echo 0` keeps this from tripping `set -e -o pipefail` while the node is still warming
       # up (getnowblock briefly returns non-JSON, failing jq); a standalone failing assignment
       # would exit the whole script with no error message.
       blk="$(curl -sf -m3 -X POST "$NODE_HOST/wallet/getnowblock" 2>/dev/null | jq -r '.block_header.raw_data.number // 0' 2>/dev/null || echo 0)"
-      [ "${blk:-0}" -ge 5 ] && { ready=1; break; }
+      [ "${blk:-0}" -ge 1 ] && { ready=1; break; }
     fi
     sleep 2
   done
@@ -188,7 +198,7 @@ start_node() {
   # Confirm the genesis account is actually funded before we depend on it (a few blocks may still
   # be needed after the readiness gate).
   first_bal=0
-  for _ in $(seq 1 10); do
+  for _ in $(seq 1 30); do
     first_bal="$(tool balance "$first_addr" 2>/dev/null || echo 0)"
     [ "${first_bal:-0}" != "0" ] && break
     sleep 2
@@ -372,8 +382,9 @@ stage_settle() {
 main() {
   trap cleanup EXIT
   preflight
-  start_node
-  stage_setup_wallet
+  launch_node          # kick off the container, return immediately…
+  stage_setup_wallet   # …so its boot overlaps the manual TronLink setup (human time)
+  await_node_ready     # by now the node is usually already up
   stage_connect_and_fund
   stage_sign_message
   stage_sign_typed_data
