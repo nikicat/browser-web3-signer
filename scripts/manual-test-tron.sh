@@ -243,9 +243,13 @@ stage_sign_typed_data() {
   step "3/5  Sign typed data (TIP-712)"
   local typed_file tsig
   typed_file="$(mktemp --suffix=.json)"
+  # No chainId in the domain: TronLink rejects a typed-data domain whose chainId doesn't match the
+  # wallet's active chainId, and a custom local node reports mainnet's (728126428), which we can't
+  # know from here. chainId is optional in EIP-712/TIP-712, and TronLink doesn't inject one when
+  # it's absent — so signer and verifier (ethers) hash the same domain and recovery matches.
   cat > "$typed_file" <<JSON
 {
-  "domain": { "name": "Tron Test", "version": "1", "chainId": 1 },
+  "domain": { "name": "Tron Test", "version": "1" },
   "types": { "Message": [{ "name": "content", "type": "string" }] },
   "primaryType": "Message",
   "message": { "content": "typed data over tron" }
