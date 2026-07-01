@@ -19,8 +19,6 @@ pub struct ChainConfig {
     pub id: ChainId,
     /// Human-readable name.
     pub name: &'static str,
-    /// Default JSON-RPC endpoint (used for read-only queries).
-    pub rpc_url: &'static str,
     /// Native currency symbol.
     pub symbol: &'static str,
     /// Native currency decimals.
@@ -48,7 +46,6 @@ pub const CHAINS: &[ChainConfig] = &[
     ChainConfig {
         id: ChainId(1),
         name: "Ethereum",
-        rpc_url: "https://eth.llamarpc.com",
         symbol: "ETH",
         decimals: 18,
         block_explorer: Some("https://etherscan.io"),
@@ -56,7 +53,6 @@ pub const CHAINS: &[ChainConfig] = &[
     ChainConfig {
         id: ChainId(11_155_111),
         name: "Sepolia",
-        rpc_url: "https://rpc.sepolia.org",
         symbol: "ETH",
         decimals: 18,
         block_explorer: Some("https://sepolia.etherscan.io"),
@@ -64,7 +60,6 @@ pub const CHAINS: &[ChainConfig] = &[
     ChainConfig {
         id: ChainId(137),
         name: "Polygon",
-        rpc_url: "https://polygon-rpc.com",
         symbol: "MATIC",
         decimals: 18,
         block_explorer: Some("https://polygonscan.com"),
@@ -72,7 +67,6 @@ pub const CHAINS: &[ChainConfig] = &[
     ChainConfig {
         id: ChainId(42161),
         name: "Arbitrum One",
-        rpc_url: "https://arb1.arbitrum.io/rpc",
         symbol: "ETH",
         decimals: 18,
         block_explorer: Some("https://arbiscan.io"),
@@ -80,7 +74,6 @@ pub const CHAINS: &[ChainConfig] = &[
     ChainConfig {
         id: ChainId(10),
         name: "Optimism",
-        rpc_url: "https://mainnet.optimism.io",
         symbol: "ETH",
         decimals: 18,
         block_explorer: Some("https://optimistic.etherscan.io"),
@@ -88,7 +81,6 @@ pub const CHAINS: &[ChainConfig] = &[
     ChainConfig {
         id: ChainId(8453),
         name: "Base",
-        rpc_url: "https://mainnet.base.org",
         symbol: "ETH",
         decimals: 18,
         block_explorer: Some("https://basescan.org"),
@@ -96,7 +88,6 @@ pub const CHAINS: &[ChainConfig] = &[
     ChainConfig {
         id: ChainId(43114),
         name: "Avalanche",
-        rpc_url: "https://api.avax.network/ext/bc/C/rpc",
         symbol: "AVAX",
         decimals: 18,
         block_explorer: Some("https://snowtrace.io"),
@@ -104,7 +95,6 @@ pub const CHAINS: &[ChainConfig] = &[
     ChainConfig {
         id: ChainId(56),
         name: "BNB Smart Chain",
-        rpc_url: "https://bsc-dataseed.binance.org",
         symbol: "BNB",
         decimals: 18,
         block_explorer: Some("https://bscscan.com"),
@@ -114,9 +104,4 @@ pub const CHAINS: &[ChainConfig] = &[
 /// Look up a chain by id.
 pub fn chain_config(id: ChainId) -> Option<&'static ChainConfig> {
     CHAINS.iter().find(|c| c.id == id)
-}
-
-/// The JSON-RPC endpoint for a chain, if known.
-pub fn rpc_url(id: ChainId) -> Option<&'static str> {
-    chain_config(id).map(|c| c.rpc_url)
 }

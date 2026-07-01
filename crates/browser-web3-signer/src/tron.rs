@@ -1,9 +1,9 @@
-//! TRON subcommands: one-shot wallet operations and read-only balance queries via TronLink.
+//! TRON subcommands: one-shot wallet operations via TronLink.
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use browser_web3_signer_core::{BindPort, BrowserChoice, HexData, Signature, TxHash, Url};
+use browser_web3_signer_core::{BindPort, HexData, Signature, TxHash, Url};
 use browser_web3_signer_tron::{
     DeployContractParams, EnergyLimit, Percentage, SendTransactionParams, Sun,
     TriggerContractParams, TronAddress, TronNetwork, TronRequest, TronSigner, TypedData, config,
@@ -125,27 +125,6 @@ pub(crate) enum TronCommand {
         #[arg(long)]
         network: Option<TronNetwork>,
     },
-    /// Read the native TRX balance (no browser).
-    GetBalance {
-        /// Address to query.
-        #[arg(long)]
-        address: TronAddress,
-        /// Network.
-        #[arg(long)]
-        network: Option<TronNetwork>,
-    },
-    /// Read a TRC-20 token balance (no browser).
-    GetTokenBalance {
-        /// Token contract address.
-        #[arg(long)]
-        token: TronAddress,
-        /// Holder address to query.
-        #[arg(long)]
-        address: TronAddress,
-        /// Network.
-        #[arg(long)]
-        network: Option<TronNetwork>,
-    },
 }
 
 /// Typed-data file shape (`{domain, types, primaryType, message}`).
@@ -167,14 +146,10 @@ struct TronCli {
 
 impl TronCli {
     fn new(ctx: CliContext) -> Self {
-        let browser = match &ctx.open {
-            crate::OpenMode::Named(name) => BrowserChoice::Named(name.clone()),
-            _ => BrowserChoice::Default,
-        };
         let signer = TronSigner::new(
             BindPort::Preferred(config::port()),
             config::default_network(),
-            browser,
+            ctx.open.browser_choice(),
         );
         Self { signer, ctx }
     }
@@ -293,46 +268,6 @@ impl TronCli {
         Ok(())
     }
 
-    async fn get_balance(&self, address: &TronAddress, network: Option<TronNetwork>) -> Result<()> {
-        let res = self.signer.get_balance(address, network).await?;
-        match self.ctx.output {
-            OutputFormat::Text => {
-                println!("Balance: {} {}", res.amount.to_trx_string(), res.symbol);
-                println!("Sun:     {}", res.amount);
-            }
-            OutputFormat::Json => output::json(&json!({
-                "balance": res.amount.to_trx_string(),
-                "sun": res.amount.to_string(),
-                "symbol": res.symbol.to_string(),
-            })),
-        }
-        Ok(())
-    }
-
-    async fn get_token_balance(
-        &self,
-        token: &TronAddress,
-        address: &TronAddress,
-        network: Option<TronNetwork>,
-    ) -> Result<()> {
-        let res = self
-            .signer
-            .get_token_balance(token, address, network)
-            .await?;
-        match self.ctx.output {
-            OutputFormat::Text => {
-                println!("Balance: {} {}", res.amount.to_decimal_string(), res.symbol);
-            }
-            OutputFormat::Json => output::json(&json!({
-                "balance": res.amount.to_decimal_string(),
-                "raw": res.amount.raw().to_string(),
-                "symbol": res.symbol.to_string(),
-                "decimals": res.amount.decimals().get(),
-            })),
-        }
-        Ok(())
-    }
-
     fn emit_tx(&self, network: TronNetwork, hash: &TxHash) {
         let explorer = tx_explorer(network, hash);
         match self.ctx.output {
@@ -442,11 +377,5 @@ pub(crate) async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
             address,
             network,
         } => cli.sign_typed_data(&file, address, network).await,
-        TronCommand::GetBalance { address, network } => cli.get_balance(&address, network).await,
-        TronCommand::GetTokenBalance {
-            token,
-            address,
-            network,
-        } => cli.get_token_balance(&token, &address, network).await,
     }
 }

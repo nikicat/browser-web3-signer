@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "EVM browser wallet signer: connect / send-transaction / sign-message / sign-typed-data via a browser wallet, plus read-only balance queries."
+description = "EVM browser wallet signer: connect / send-transaction / sign-message / sign-typed-data via a browser wallet."
 
 [dependencies]
 browser-web3-signer-core = { workspace = true }
@@ -13,13 +13,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
-alloy = { version = "1", default-features = false, features = [
-  "std",
-  "provider-http",
-  "reqwest-rustls-tls",
-  "contract",
-  "rpc-types-eth",
-] }
+alloy = { version = "1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

@@ -1,0 +1,11 @@
+{
+  "name": "browser-web3-signer-tron-tool",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local-node helper for the TRON manual-test assistant (fund / deploy / mint / verify).",
+  "dependencies": {
+    "ethers": "^6.13.0",
+    "tronweb": "^6.4.0"
+  }
+}

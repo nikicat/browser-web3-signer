@@ -1,14 +1,13 @@
-//! [`TronSigner`]: typed wallet operations over TronLink, plus read-only balance queries via
-//! TronGrid HTTP (ported from `browser-tron-signer/src/wallet-signer.ts`).
+//! [`TronSigner`]: typed wallet operations over TronLink
+//! (ported from `browser-tron-signer/src/wallet-signer.ts`).
 //!
 //! Signing and transaction building happen browser-side in TronLink's `tronWeb`; the Rust side
-//! only routes requests and performs read-only HTTP queries.
+//! only routes requests.
 
-use alloy_primitives::U256;
 use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Prepared, SignerError, TxHash};
 
 use crate::config;
-use crate::domain::{Decimals, Sun, Symbol, TokenAmount, TronAddress, TronNetwork};
+use crate::domain::{TronAddress, TronNetwork};
 use crate::types::{
     DeployContractParams, SendTransactionParams, TriggerContractParams, TronRequest, TypedData,
 };
@@ -17,24 +16,6 @@ type Result<T> = std::result::Result<T, SignerError>;
 
 /// The embedded browser approval UI.
 pub const WEB_UI: &str = include_str!("../../../web/tron.html");
-
-/// Native TRX balance of an address. Carries domain values; the caller formats for display.
-#[derive(Debug, Clone)]
-pub struct BalanceResult {
-    /// Balance in SUN.
-    pub amount: Sun,
-    /// Native currency symbol.
-    pub symbol: Symbol,
-}
-
-/// TRC-20 token balance of an address.
-#[derive(Debug, Clone)]
-pub struct TokenBalanceResult {
-    /// The balance, self-describing (raw value + decimals).
-    pub amount: TokenAmount,
-    /// Token symbol (empty if the contract does not implement `symbol()`).
-    pub symbol: Symbol,
-}
 
 /// Result of a contract deployment.
 #[derive(Debug, Clone)]
@@ -49,7 +30,6 @@ pub struct DeployResult {
 pub struct TronSigner {
     engine: Engine<TronRequest>,
     default_network: TronNetwork,
-    http: reqwest::Client,
 }
 
 impl TronSigner {
@@ -58,7 +38,6 @@ impl TronSigner {
         Self {
             engine: Engine::new(WEB_UI, bind, browser),
             default_network,
-            http: reqwest::Client::new(),
         }
     }
 
@@ -161,109 +140,6 @@ impl TronSigner {
         );
         parse_signed(&self.submit(req).await?, "signature")
     }
-
-    /// Read the native TRX balance of an address (no browser interaction).
-    pub async fn get_balance(
-        &self,
-        address: &TronAddress,
-        network: Option<TronNetwork>,
-    ) -> Result<BalanceResult> {
-        let network = self.network_or_default(network);
-        let host = config::full_host(network)
-            .ok_or_else(|| SignerError::Invalid(format!("unknown TRON network {network}")))?;
-
-        let resp: serde_json::Value = self
-            .http
-            .post(format!("{host}/wallet/getaccount"))
-            .json(&serde_json::json!({ "address": address.to_base58(), "visible": true }))
-            .send()
-            .await
-            .map_err(|e| SignerError::Rpc(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| SignerError::Rpc(e.to_string()))?;
-
-        let sun = resp
-            .get("balance")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        let symbol = Symbol::new(config::network_config(network).map_or("TRX", |n| n.symbol));
-        Ok(BalanceResult {
-            amount: Sun(sun),
-            symbol,
-        })
-    }
-
-    /// Read the TRC-20 token balance of an address via `triggerconstantcontract` (no browser).
-    pub async fn get_token_balance(
-        &self,
-        contract: &TronAddress,
-        address: &TronAddress,
-        network: Option<TronNetwork>,
-    ) -> Result<TokenBalanceResult> {
-        let network = self.network_or_default(network);
-        let host = config::full_host(network)
-            .ok_or_else(|| SignerError::Invalid(format!("unknown TRON network {network}")))?;
-
-        let holder_arg = format!("{:0>64}", address.to_hex20());
-        let raw_hex = self
-            .trigger_constant(host, contract, "balanceOf(address)", &holder_arg)
-            .await?;
-        let decimals_hex = self
-            .trigger_constant(host, contract, "decimals()", "")
-            .await?;
-        let symbol = self
-            .trigger_constant(host, contract, "symbol()", "")
-            .await
-            .map_or_else(
-                |_| Symbol::new(""),
-                |hex| Symbol::new(decode_abi_string(&hex)),
-            );
-
-        let raw = U256::from_str_radix(raw_hex.trim_start_matches("0x"), 16)
-            .map_err(|e| SignerError::Rpc(format!("bad balanceOf result: {e}")))?;
-        let decimals = u8::from_str_radix(decimals_hex.trim_start_matches("0x"), 16).unwrap_or(0);
-
-        Ok(TokenBalanceResult {
-            amount: TokenAmount::new(raw, Decimals(decimals)),
-            symbol,
-        })
-    }
-
-    /// POST a `triggerconstantcontract` read call; return the first `constant_result` hex string.
-    async fn trigger_constant(
-        &self,
-        host: &str,
-        contract: &TronAddress,
-        function_selector: &str,
-        parameter: &str,
-    ) -> Result<String> {
-        let resp: serde_json::Value = self
-            .http
-            .post(format!("{host}/wallet/triggerconstantcontract"))
-            .json(&serde_json::json!({
-                // A valid owner is required; the contract itself always qualifies and avoids
-                // needing a real holder for read-only calls.
-                "owner_address": contract.to_base58(),
-                "contract_address": contract.to_base58(),
-                "function_selector": function_selector,
-                "parameter": parameter,
-                "visible": true,
-            }))
-            .send()
-            .await
-            .map_err(|e| SignerError::Rpc(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| SignerError::Rpc(e.to_string()))?;
-
-        resp.get("constant_result")
-            .and_then(|r| r.as_array())
-            .and_then(|a| a.first())
-            .and_then(|v| v.as_str())
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| SignerError::Rpc(format!("triggerconstantcontract: no result ({resp})")))
-    }
 }
 
 /// Parse a `deploy_contract` result (JSON `{txHash, contractAddress}`) into typed values.
@@ -290,23 +166,6 @@ pub fn parse_deploy_result(raw: &str) -> Result<DeployResult> {
     })
 }
 
-/// Decode an ABI-encoded `string` return value (offset + length + utf-8 bytes).
-fn decode_abi_string(hex: &str) -> String {
-    let hex = hex.trim_start_matches("0x");
-    if hex.len() < 128 {
-        return String::new();
-    }
-    let length = usize::from_str_radix(&hex[64..128], 16).unwrap_or(0);
-    if length == 0 {
-        return String::new();
-    }
-    let data = &hex[128..(128 + length * 2).min(hex.len())];
-    let bytes = (0..data.len() / 2)
-        .filter_map(|i| u8::from_str_radix(&data[i * 2..i * 2 + 2], 16).ok())
-        .collect::<Vec<u8>>();
-    String::from_utf8_lossy(&bytes).into_owned()
-}
-
 /// Parse a wallet-returned string into a domain type, mapping failures to an error.
 fn parse_signed<T: std::str::FromStr>(raw: &str, what: &str) -> Result<T>
 where
@@ -318,8 +177,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use alloy_primitives::hex;
-
     use super::*;
 
     #[test]
@@ -331,12 +188,5 @@ mod tests {
             r.contract_address.to_base58(),
             "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC"
         );
-    }
-
-    #[test]
-    fn abi_string_decodes() {
-        // offset(32) + length(5) + "USDTT" padded.
-        let hex = format!("{:064x}{:064x}{:0<64}", 32u64, 5u64, hex::encode("USDTT"));
-        assert_eq!(decode_abi_string(&hex), "USDTT");
     }
 }

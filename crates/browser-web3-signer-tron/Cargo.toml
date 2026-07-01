@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "TRON browser wallet signer: connect / send-TRX / trigger-contract / deploy-contract / sign-message / sign-typed-data via TronLink, plus read-only balance queries."
+description = "TRON browser wallet signer: connect / send-TRX / trigger-contract / deploy-contract / sign-message / sign-typed-data via TronLink."
 
 [dependencies]
 browser-web3-signer-core = { workspace = true }
@@ -13,7 +13,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
-reqwest = { workspace = true }
 alloy-primitives = "1"
 bs58 = { version = "0.5", features = ["check"] }
 

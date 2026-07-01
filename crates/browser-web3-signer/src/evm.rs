@@ -1,17 +1,17 @@
-//! EVM subcommands: one-shot wallet operations and read-only balance queries.
+//! EVM subcommands: one-shot wallet operations.
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use browser_web3_signer_core::{BindPort, BrowserChoice, Url};
+use browser_web3_signer_core::{BindPort, Url};
 use browser_web3_signer_evm::{
-    Address, CallData, ChainId, EvmRequest, EvmSigner, SendTransactionParams, Signature, TxHash,
-    TypedData, Wei, config,
+    Address, CallData, ChainId, ConnectParams, EvmRequest, EvmSigner, SendTransactionParams,
+    Signature, TxHash, TypedData, Wei, config,
 };
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::{CliContext, OpenMode, OutputFormat, flow, output};
+use crate::{CliContext, OutputFormat, flow, output};
 
 /// EVM subcommands.
 #[derive(Debug, Subcommand)]
@@ -24,6 +24,13 @@ pub(crate) enum EvmCommand {
         /// Expected wallet address; the UI rejects a mismatch.
         #[arg(long)]
         address: Option<Address>,
+        /// RPC URL for a custom/non-built-in chain (e.g. a local anvil node). The approval page
+        /// adds the chain to the wallet via `wallet_addEthereumChain` using this endpoint.
+        #[arg(long = "rpc-url")]
+        rpc_url: Option<Url>,
+        /// Display name for the custom chain (used with `--rpc-url`).
+        #[arg(long = "chain-name")]
+        chain_name: Option<String>,
     },
     /// Send ETH or call a contract.
     SendTransaction {
@@ -76,27 +83,6 @@ pub(crate) enum EvmCommand {
         #[arg(long)]
         chain: Option<ChainId>,
     },
-    /// Read the native balance (no browser).
-    GetBalance {
-        /// Address to query.
-        #[arg(long)]
-        address: Address,
-        /// Chain id.
-        #[arg(long)]
-        chain: Option<ChainId>,
-    },
-    /// Read an ERC-20 token balance (no browser).
-    GetTokenBalance {
-        /// Token contract address.
-        #[arg(long)]
-        token: Address,
-        /// Holder address to query.
-        #[arg(long)]
-        address: Address,
-        /// Chain id.
-        #[arg(long)]
-        chain: Option<ChainId>,
-    },
 }
 
 /// Typed-data file shape (`{domain, types, primaryType, message}`).
@@ -119,14 +105,10 @@ struct EvmCli {
 
 impl EvmCli {
     fn new(ctx: CliContext) -> Self {
-        let browser = match &ctx.open {
-            OpenMode::Named(name) => BrowserChoice::Named(name.clone()),
-            _ => BrowserChoice::Default,
-        };
         let signer = EvmSigner::new(
             BindPort::Preferred(config::port()),
             config::default_chain_id(),
-            browser,
+            ctx.open.browser_choice(),
         );
         Self { signer, ctx }
     }
@@ -148,8 +130,19 @@ impl EvmCli {
         flow::await_signed(prepared, &self.ctx.open, &self.signer, what).await
     }
 
-    async fn connect(&self, chain: Option<ChainId>, address: Option<Address>) -> Result<()> {
-        let req = EvmRequest::connect(Some(self.chain_or_default(chain)), address);
+    async fn connect(
+        &self,
+        chain: Option<ChainId>,
+        address: Option<Address>,
+        rpc_url: Option<Url>,
+        chain_name: Option<String>,
+    ) -> Result<()> {
+        let req = EvmRequest::connect_with(ConnectParams {
+            chain_id: Some(self.chain_or_default(chain)),
+            address,
+            rpc_url,
+            chain_name,
+        });
         let addr: Address = self.approve(req, "address").await?;
         match self.ctx.output {
             OutputFormat::Text => println!("Connected: {addr}"),
@@ -212,50 +205,18 @@ impl EvmCli {
         }
         Ok(())
     }
-
-    async fn get_balance(&self, address: Address, chain: Option<ChainId>) -> Result<()> {
-        let res = self.signer.get_balance(address, chain).await?;
-        match self.ctx.output {
-            OutputFormat::Text => {
-                println!("Balance: {} {}", res.to_decimal_string(), res.symbol);
-                println!("Wei:     {}", res.amount);
-            }
-            OutputFormat::Json => output::json(&json!({
-                "balance": res.to_decimal_string(),
-                "wei": res.amount.to_string(),
-                "symbol": res.symbol.to_string(),
-            })),
-        }
-        Ok(())
-    }
-
-    async fn get_token_balance(
-        &self,
-        token: Address,
-        address: Address,
-        chain: Option<ChainId>,
-    ) -> Result<()> {
-        let res = self.signer.get_token_balance(token, address, chain).await?;
-        match self.ctx.output {
-            OutputFormat::Text => {
-                println!("Balance: {} {}", res.amount.to_decimal_string(), res.symbol);
-            }
-            OutputFormat::Json => output::json(&json!({
-                "balance": res.amount.to_decimal_string(),
-                "raw": res.amount.raw().to_string(),
-                "symbol": res.symbol.to_string(),
-                "decimals": res.amount.decimals().get(),
-            })),
-        }
-        Ok(())
-    }
 }
 
 /// Run an EVM subcommand by dispatching to the matching [`EvmCli`] method.
 pub(crate) async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
     let cli = EvmCli::new(ctx);
     match cmd {
-        EvmCommand::Connect { chain, address } => cli.connect(chain, address).await,
+        EvmCommand::Connect {
+            chain,
+            address,
+            rpc_url,
+            chain_name,
+        } => cli.connect(chain, address, rpc_url, chain_name).await,
         EvmCommand::SendTransaction {
             to,
             from,
@@ -292,11 +253,5 @@ pub(crate) async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
             address,
             chain,
         } => cli.sign_typed_data(&file, address, chain).await,
-        EvmCommand::GetBalance { address, chain } => cli.get_balance(address, chain).await,
-        EvmCommand::GetTokenBalance {
-            token,
-            address,
-            chain,
-        } => cli.get_token_balance(token, address, chain).await,
     }
 }

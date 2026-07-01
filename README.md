@@ -46,11 +46,6 @@ stdout.
 ### EVM
 
 ```sh
-# Read-only (no browser, no wallet):
-browser-web3-signer evm get-balance --address 0xd8dA…6045 --chain 8453
-browser-web3-signer evm get-token-balance --token 0x833589…2913 --address 0xd8dA…6045 --chain 8453
-
-# Browser-approved:
 browser-web3-signer evm connect --chain 1
 browser-web3-signer evm send-transaction --to 0x… --value 1000000000000000 --chain 1
 browser-web3-signer evm sign-message --message "hello"
@@ -64,7 +59,6 @@ fee flags are in wei.
 ### TRON
 
 ```sh
-browser-web3-signer tron get-balance --address T… --network mainnet
 browser-web3-signer tron connect
 browser-web3-signer tron send-transaction --to T… --amount 1000000          # SUN (1 TRX = 1e6 SUN)
 browser-web3-signer tron trigger-contract --contract T… --selector 'transfer(address,uint256)' \
@@ -74,8 +68,7 @@ browser-web3-signer tron deploy-contract --abi-file ./abi.json --bytecode 0x…
 ```
 
 Networks: `mainnet`, `shasta`, `nile`. Signing and transaction building happen browser-side
-in TronLink's `tronWeb`; the Rust side only routes requests and does read-only TronGrid
-queries.
+in TronLink's `tronWeb`; the Rust side only routes requests.
 
 ### Serve (control API for language bindings)
 
@@ -116,10 +109,34 @@ just coverage   # cargo-llvm-cov summary
 (`.pre-commit-config.yaml`). See [ARCHITECTURE.md](ARCHITECTURE.md) for the design and the
 rationale behind the key decisions.
 
+### Manual real-wallet test (local anvil)
+
+[`scripts/manual-test-evm.sh`](scripts/manual-test-evm.sh) drives your **real** browser wallet
+against a throwaway local [anvil](https://book.getfoundry.sh/anvil/) chain: it starts anvil, has
+you connect (adding the local network via `--rpc-url`), funds your address with a cheat code, then
+walks through sign-message, sign-typed-data, send-transaction, and an ERC-20 transfer — verifying
+each result on-chain with `cast`. You only approve each step in the wallet; no testnet, no faucet,
+no real funds. Requires foundry (`anvil`/`cast`/`forge`) + `jq` and a `cargo build`.
+
+[`scripts/manual-test-tron.sh`](scripts/manual-test-tron.sh) is the TronLink counterpart, driven by
+a throwaway local [`tronbox/tre`](https://hub.docker.com/r/tronbox/tre) node in Docker. TRON has no
+`anvil`/`cast`, so a small TronWeb helper ([`scripts/tron/tron-tool.ts`](scripts/tron/tron-tool.ts),
+run directly by node ≥ 22.6) is the funding + verification layer: it funds your address from the
+node's genesis key, deploys/mints a demo TRC-20, and verifies signatures and receipts. TronLink
+can't be pointed at a node from the CLI, so the one-time setup is to add `http://127.0.0.1:9090` as
+a custom node in TronLink and select it; the script prints the exact steps. Same five stages,
+same "you only approve in the wallet" flow. Requires Docker, node ≥ 22.6, `forge`, `jq`, `cargo build`.
+
+One TRON-specific wrinkle: TronLink only knows a chainId for its built-in networks and never queries
+a custom node's, so **TIP-712 typed-data signing fails on a local node** (`"Current chainId cannot be
+null"`) until you inject it once via [`scripts/tron/inject-chainid.js`](scripts/tron/inject-chainid.js)
+(pasted into TronLink's service-worker console — the script's setup step explains it). The other four
+stages don't need it. `DEBUG_RPC=1` logs all wallet→node traffic through a proxy for diagnosis.
+
 ## Status
 
 Working today: the one-shot CLI for **EVM and TRON** (connect, send/trigger/deploy,
-message + typed-data signing, read-only balances), with an embedded approval UI per chain.
+message + typed-data signing), with an embedded approval UI per chain.
 
 **E2E browser tests**: a Playwright suite drives a mock wallet against the real Rust bridge for
 **both EVM and TRON** (connect, sign, send/trigger/deploy, reject, cancel, address mismatch),

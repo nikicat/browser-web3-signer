@@ -24,8 +24,6 @@ pub struct NetworkConfig {
     pub id: TronNetwork,
     /// Human-readable name.
     pub name: &'static str,
-    /// TronGrid HTTP full-node URL (used for read-only queries).
-    pub full_host: &'static str,
     /// Block explorer base URL.
     pub block_explorer: &'static str,
     /// Native currency symbol.
@@ -52,7 +50,6 @@ pub const NETWORKS: &[NetworkConfig] = &[
     NetworkConfig {
         id: TronNetwork::Mainnet,
         name: "Tron Mainnet",
-        full_host: "https://api.trongrid.io",
         block_explorer: "https://tronscan.org",
         symbol: "TRX",
         decimals: 6,
@@ -60,7 +57,6 @@ pub const NETWORKS: &[NetworkConfig] = &[
     NetworkConfig {
         id: TronNetwork::Shasta,
         name: "Shasta Testnet",
-        full_host: "https://api.shasta.trongrid.io",
         block_explorer: "https://shasta.tronscan.org",
         symbol: "TRX",
         decimals: 6,
@@ -68,7 +64,6 @@ pub const NETWORKS: &[NetworkConfig] = &[
     NetworkConfig {
         id: TronNetwork::Nile,
         name: "Nile Testnet",
-        full_host: "https://nile.trongrid.io",
         block_explorer: "https://nile.tronscan.org",
         symbol: "TRX",
         decimals: 6,
@@ -78,9 +73,4 @@ pub const NETWORKS: &[NetworkConfig] = &[
 /// Look up a network config by id.
 pub fn network_config(network: TronNetwork) -> Option<&'static NetworkConfig> {
     NETWORKS.iter().find(|n| n.id == network)
-}
-
-/// The TronGrid full-node URL for a network.
-pub fn full_host(network: TronNetwork) -> Option<&'static str> {
-    network_config(network).map(|n| n.full_host)
 }

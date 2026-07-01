@@ -1,52 +1,16 @@
-//! [`EvmSigner`]: typed wallet operations over a browser wallet, plus read-only balance
-//! queries via `alloy` (ported from `browser-evm-signer/src/wallet-signer.ts`).
+//! [`EvmSigner`]: typed wallet operations over a browser wallet
+//! (ported from `browser-evm-signer/src/wallet-signer.ts`).
 
-use alloy::providers::{Provider, ProviderBuilder};
-use alloy::sol;
 use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Prepared, SignerError};
 
 use crate::config;
-use crate::domain::{Address, ChainId, Decimals, Signature, Symbol, TokenAmount, TxHash, Wei};
+use crate::domain::{Address, ChainId, Signature, TxHash};
 use crate::types::{EvmRequest, SendTransactionParams, TypedData};
 
 type Result<T> = std::result::Result<T, SignerError>;
 
 /// The embedded browser approval UI.
 pub const WEB_UI: &str = include_str!("../../../web/evm.html");
-
-sol! {
-    #[sol(rpc)]
-    interface IERC20 {
-        function balanceOf(address owner) external view returns (uint256);
-        function decimals() external view returns (uint8);
-        function symbol() external view returns (string);
-    }
-}
-
-/// Native-token balance of an address. Carries only domain values; the caller formats for display.
-#[derive(Debug, Clone)]
-pub struct BalanceResult {
-    /// The balance in wei.
-    pub amount: Wei,
-    /// Native currency symbol.
-    pub symbol: Symbol,
-}
-
-impl BalanceResult {
-    /// Human-readable balance (18-decimal native currency).
-    pub fn to_decimal_string(&self) -> String {
-        self.amount.to_ether_string()
-    }
-}
-
-/// ERC-20 token balance of an address.
-#[derive(Debug, Clone)]
-pub struct TokenBalanceResult {
-    /// The balance, self-describing (raw value + decimals).
-    pub amount: TokenAmount,
-    /// Token symbol (empty if the contract does not implement `symbol()`).
-    pub symbol: Symbol,
-}
 
 /// Programmatic EVM signer. Owns a single-chain [`Engine`] plus a default chain id used when a
 /// request omits one.
@@ -147,65 +111,6 @@ impl EvmSigner {
             EvmRequest::sign_typed_data(typed_data, address, Some(self.chain_or_default(chain_id)));
         parse_signed(&self.submit(req).await?, "signature")
     }
-
-    /// Read the native balance of an address (no browser interaction).
-    pub async fn get_balance(
-        &self,
-        address: Address,
-        chain_id: Option<ChainId>,
-    ) -> Result<BalanceResult> {
-        let chain_id = self.chain_or_default(chain_id);
-        let provider = provider_for(chain_id)?;
-        let wei = provider
-            .get_balance(address.inner())
-            .await
-            .map_err(|e| SignerError::Rpc(e.to_string()))?;
-        let symbol = Symbol::new(config::chain_config(chain_id).map_or("ETH", |c| c.symbol));
-        Ok(BalanceResult {
-            amount: Wei(wei),
-            symbol,
-        })
-    }
-
-    /// Read the ERC-20 token balance of an address (no browser interaction). `symbol` is empty
-    /// if the contract does not implement `symbol()`.
-    pub async fn get_token_balance(
-        &self,
-        contract: Address,
-        address: Address,
-        chain_id: Option<ChainId>,
-    ) -> Result<TokenBalanceResult> {
-        let chain_id = self.chain_or_default(chain_id);
-        let provider = provider_for(chain_id)?;
-        let token = IERC20::new(contract.inner(), &provider);
-
-        let raw = token
-            .balanceOf(address.inner())
-            .call()
-            .await
-            .map_err(|e| SignerError::Rpc(e.to_string()))?;
-        let decimals = token
-            .decimals()
-            .call()
-            .await
-            .map_err(|e| SignerError::Rpc(e.to_string()))?;
-        let symbol = Symbol::new(token.symbol().call().await.unwrap_or_default());
-
-        Ok(TokenBalanceResult {
-            amount: TokenAmount::new(raw, Decimals(decimals)),
-            symbol,
-        })
-    }
-}
-
-/// Build a read-only HTTP provider for a chain.
-fn provider_for(chain_id: ChainId) -> Result<impl Provider> {
-    let url = config::rpc_url(chain_id)
-        .ok_or_else(|| SignerError::Invalid(format!("unknown chain id {chain_id}; no RPC URL")))?;
-    let url = url
-        .parse()
-        .map_err(|e| SignerError::Invalid(format!("bad RPC URL: {e}")))?;
-    Ok(ProviderBuilder::new().connect_http(url))
 }
 
 /// Parse a wallet-returned string into a domain type, mapping failures to an error.
