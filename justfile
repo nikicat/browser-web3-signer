@@ -73,3 +73,8 @@ e2e: e2e-build
 # Requires foundry (anvil/cast/forge) + jq. You approve each step in your wallet.
 manual-test-evm: build
     ./scripts/manual-test-evm.sh
+
+# Manual real-wallet test: drive TronLink against a local tronbox/tre node (Docker).
+# Requires docker, node >= 22.6, forge, jq. You approve each step in TronLink.
+manual-test-tron: build
+    ./scripts/manual-test-tron.sh
