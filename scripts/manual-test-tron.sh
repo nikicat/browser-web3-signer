@@ -41,7 +41,10 @@ readonly NODE_HOST="http://127.0.0.1:${NODE_PORT}"
 readonly CONTAINER="bw3s-tre-manual-$$"
 
 # Amounts (TRX has 6 decimals: 1 TRX = 1,000,000 SUN).
-readonly FUND_SUN=10000000000        # 10,000 TRX to the connected wallet
+# Fund well under a genesis account's balance (tre gives each exactly 10,000 TRX): transferring the
+# whole balance leaves nothing for the transfer's own bandwidth/fee and the node rejects it. 5,000
+# TRX is far more than the wallet needs for the send + TRC-20 stages.
+readonly FUND_SUN=5000000000         # 5,000 TRX to the connected wallet
 readonly SEND_SUN=100000000          # 100 TRX native transfer
 readonly TOKEN_MINT=1000000000000000000000   # 1000 tokens (18 decimals) minted to the wallet
 readonly TOKEN_XFER=100000000000000000000     # 100 tokens transferred by the wallet
