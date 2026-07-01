@@ -17,11 +17,10 @@ pub enum UrlKind {
 /// How (and whether) to open the approval URL in a browser.
 #[derive(Debug, Clone, Default)]
 pub enum BrowserChoice {
-    /// Open in the OS default browser, honoring the `BROWSER` env var.
+    /// Open in the OS default browser, honoring the `BROWSER` env var (set `BROWSER=<program>`
+    /// to open a specific browser).
     #[default]
     Default,
-    /// Open in a specific browser by name (`firefox`, `google-chrome`, …) or absolute path.
-    Named(String),
     /// Do not open anything — the caller surfaces the URL for the user to open manually.
     Print,
 }
@@ -38,25 +37,19 @@ pub fn build_url(port: Port, id: uuid::Uuid, kind: UrlKind) -> Url {
 
 /// Open `url` according to `choice`. Failures are logged, not returned — the user can always
 /// open the URL manually (the caller is expected to have surfaced it).
+///
+/// Uses the `opener` crate for both the default and `$BROWSER` cases: `opener::open_browser`
+/// honors `$BROWSER` when set (falling back to the OS default otherwise) and — crucially —
+/// launches the browser with stdin/stdout detached. That detachment matters when the CLI's own
+/// stdout is a pipe (e.g. `browser-web3-signer … | jq`): a GUI browser would otherwise inherit and
+/// hold the pipe's write end open for its whole lifetime, so the downstream reader never sees EOF.
 pub fn open(url: &Url, choice: &BrowserChoice) {
-    let result = match choice {
-        BrowserChoice::Print => return,
-        BrowserChoice::Named(name) => open_named(name, url.as_str()),
-        BrowserChoice::Default => match std::env::var("BROWSER") {
-            Ok(name) if !name.is_empty() => open_named(&name, url.as_str()),
-            _ => opener::open(url.as_str()).map_err(|e| e.to_string()),
-        },
-    };
-    if let Err(err) = result {
-        tracing::warn!("failed to open browser: {err}; open this URL manually: {url}");
+    match choice {
+        BrowserChoice::Print => (),
+        BrowserChoice::Default => {
+            if let Err(err) = opener::open_browser(url.as_str()) {
+                tracing::warn!("failed to open browser: {err}; open this URL manually: {url}");
+            }
+        }
     }
-}
-
-/// Launch a named browser binary with the URL as its argument.
-fn open_named(name: &str, url: &str) -> Result<(), String> {
-    std::process::Command::new(name)
-        .arg(url)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("could not launch '{name}': {e}"))
 }

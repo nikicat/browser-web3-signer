@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use browser_web3_signer_core::{BindPort, BrowserChoice, Url};
+use browser_web3_signer_core::{BindPort, Url};
 use browser_web3_signer_evm::{
     Address, CallData, ChainId, ConnectParams, EvmRequest, EvmSigner, SendTransactionParams,
     Signature, TxHash, TypedData, Wei, config,
@@ -11,7 +11,7 @@ use browser_web3_signer_evm::{
 use clap::Subcommand;
 use serde_json::json;
 
-use crate::{CliContext, OpenMode, OutputFormat, flow, output};
+use crate::{CliContext, OutputFormat, flow, output};
 
 /// EVM subcommands.
 #[derive(Debug, Subcommand)]
@@ -105,14 +105,10 @@ struct EvmCli {
 
 impl EvmCli {
     fn new(ctx: CliContext) -> Self {
-        let browser = match &ctx.open {
-            OpenMode::Named(name) => BrowserChoice::Named(name.clone()),
-            _ => BrowserChoice::Default,
-        };
         let signer = EvmSigner::new(
             BindPort::Preferred(config::port()),
             config::default_chain_id(),
-            browser,
+            ctx.open.browser_choice(),
         );
         Self { signer, ctx }
     }

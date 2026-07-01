@@ -51,11 +51,10 @@ struct Cli {
 /// Options available on every subcommand.
 #[derive(Debug, Args)]
 struct GlobalOpts {
-    /// Open the approval page in a specific browser (name like `firefox`/`google-chrome`, or a path).
-    #[arg(long, global = true, value_name = "NAME")]
-    browser: Option<String>,
-
     /// Print the approval URL but do not open a browser (open it yourself).
+    ///
+    /// To open a specific browser instead of the OS default, set the `BROWSER` environment
+    /// variable (e.g. `BROWSER=firefox`).
     #[arg(long, global = true)]
     print: bool,
 
@@ -76,10 +75,8 @@ pub(crate) enum OutputFormat {
 /// Whether and how to open the approval URL.
 #[derive(Debug, Clone)]
 pub(crate) enum OpenMode {
-    /// Open in the OS default browser.
+    /// Open in the OS default browser (honoring `$BROWSER`).
     Default,
-    /// Open in a named browser.
-    Named(String),
     /// Do not open; the user opens the printed URL themselves.
     PrintOnly,
 }
@@ -93,11 +90,9 @@ impl GlobalOpts {
         }
     }
 
-    fn open_mode(&self) -> OpenMode {
+    const fn open_mode(&self) -> OpenMode {
         if self.print {
             OpenMode::PrintOnly
-        } else if let Some(name) = &self.browser {
-            OpenMode::Named(name.clone())
         } else {
             OpenMode::Default
         }
@@ -107,11 +102,10 @@ impl GlobalOpts {
 impl OpenMode {
     /// The engine-level [`BrowserChoice`] this open mode corresponds to. Used by `serve`, which
     /// hands the choice to the engine (rather than driving the open itself like the one-shot CLI).
-    fn browser_choice(&self) -> browser_web3_signer_core::BrowserChoice {
+    pub(crate) const fn browser_choice(&self) -> browser_web3_signer_core::BrowserChoice {
         use browser_web3_signer_core::BrowserChoice;
         match self {
             Self::Default => BrowserChoice::Default,
-            Self::Named(name) => BrowserChoice::Named(name.clone()),
             Self::PrintOnly => BrowserChoice::Print,
         }
     }

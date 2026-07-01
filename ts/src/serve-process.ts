@@ -23,8 +23,9 @@ export interface ServeProcessOptions {
    */
   binPath?: string;
   /**
-   * How the bridge opens the approval page. `undefined` (default) opens the OS browser;
-   * a name opens that browser; `"print"` opens nothing (the caller surfaces the URL).
+   * How the bridge opens the approval page. `undefined` (default) opens the OS browser; a
+   * program name (set via the BROWSER env var) opens that browser; `"print"` opens nothing (the
+   * caller surfaces the URL).
    */
   browser?: string | "print";
 }
@@ -67,14 +68,17 @@ export class ServeProcess {
     if (this.#proc) return this.#baseUrl;
 
     const args: string[] = [];
+    // "print" opens no browser; a specific browser is selected via the BROWSER env var (the
+    // signer has no --browser flag — it honors $BROWSER, like xdg-open / the `open` convention).
+    const env = { ...process.env };
     if (this.#browser === "print") {
       args.push("--print");
     } else if (this.#browser) {
-      args.push("--browser", this.#browser);
+      env.BROWSER = this.#browser;
     }
     args.push("serve", "--chain", this.#chain);
 
-    const proc = spawn(this.#binPath, args, { stdio: ["ignore", "pipe", "inherit"] });
+    const proc = spawn(this.#binPath, args, { stdio: ["ignore", "pipe", "inherit"], env });
     this.#proc = proc;
 
     const port = await new Promise<number>((resolvePort, reject) => {

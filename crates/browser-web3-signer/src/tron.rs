@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use browser_web3_signer_core::{BindPort, BrowserChoice, HexData, Signature, TxHash, Url};
+use browser_web3_signer_core::{BindPort, HexData, Signature, TxHash, Url};
 use browser_web3_signer_tron::{
     DeployContractParams, EnergyLimit, Percentage, SendTransactionParams, Sun,
     TriggerContractParams, TronAddress, TronNetwork, TronRequest, TronSigner, TypedData, config,
@@ -146,14 +146,10 @@ struct TronCli {
 
 impl TronCli {
     fn new(ctx: CliContext) -> Self {
-        let browser = match &ctx.open {
-            crate::OpenMode::Named(name) => BrowserChoice::Named(name.clone()),
-            _ => BrowserChoice::Default,
-        };
         let signer = TronSigner::new(
             BindPort::Preferred(config::port()),
             config::default_network(),
-            browser,
+            ctx.open.browser_choice(),
         );
         Self { signer, ctx }
     }
