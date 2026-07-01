@@ -987,10 +987,12 @@
               }
               await finishConnect(address);
             } catch (err) {
+              // Show the error IN-PAGE and stay open so the user can retry (Try Again) or abort
+              // (Cancel). We do NOT completeError here — the caller only hears back on an explicit
+              // Cancel, not on a recoverable wallet rejection/error (matches evm.html).
               viewError = err instanceof Error ? err.message : "Connection failed";
               viewStatus = "error";
               render();
-              completeError(request.id, viewError);
             }
           },
 
@@ -1105,10 +1107,12 @@
               }, 2000);
             } catch (err) {
               console.error("[browser-tron-signer] transaction error:", err);
+              // Show the error IN-PAGE and stay open so the user can retry (Sign & Send) or abort
+              // (Reject). We do NOT completeError here — the caller only hears back on an explicit
+              // Reject, not on a recoverable wallet rejection/error (matches evm.html).
               viewError = err instanceof Error ? err.message : "Transaction failed";
               viewStatus = "error";
               render();
-              completeError(request.id, viewError);
             }
           },
 
@@ -1126,7 +1130,7 @@
               if (!connected) connected = await requestAccounts();
               connectedAddress = connected;
 
-              if (request.address && !addressMatch(connected, request.address)) {
+              if (request.address && !addressMatch(connectedAddress, request.address)) {
                 viewStatus = "wrong_address";
                 render();
                 return;
@@ -1161,10 +1165,12 @@
               }, 2000);
             } catch (err) {
               console.error("[browser-tron-signer] signing error:", err);
+              // Show the error IN-PAGE and stay open so the user can retry (Sign) or abort (Reject).
+              // We do NOT completeError here — the caller only hears back on an explicit Reject, not
+              // on a recoverable wallet rejection/error (matches evm.html).
               viewError = err instanceof Error ? err.message : "Signing failed";
               viewStatus = "error";
               render();
-              completeError(request.id, viewError);
             }
           },
 
