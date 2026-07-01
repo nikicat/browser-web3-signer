@@ -69,6 +69,10 @@ e2e-setup:
 e2e: e2e-build
     cd tests/e2e-browser && npm test
 
+# Vet + format-check + test the Go binding (needs a built binary + node; matches CI).
+go-test: build
+    cd go && test -z "$(gofmt -l .)" && go vet ./... && go test ./...
+
 # Manual real-wallet test: drive your browser wallet against a local anvil chain.
 # Requires foundry (anvil/cast/forge) + jq. You approve each step in your wallet.
 manual-test-evm: build

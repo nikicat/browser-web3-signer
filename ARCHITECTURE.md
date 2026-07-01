@@ -28,7 +28,8 @@ crates/
   browser-web3-signer/        the `browser-web3-signer` binary (one-shot CLI)
 web/
   evm.html / tron.html        self-contained vanilla-JS approval UIs (embedded via include_str!)
-ts/                           TypeScript adaptors (planned)
+ts/                           TypeScript binding (viem transport + hybrid account over `serve`)
+go/                           Go binding (stdlib-only client over `serve`)
 ```
 
 Edition 2024, MSRV 1.95.
@@ -180,9 +181,15 @@ hand-written JS for now so `include_str!` needs no toolchain in the Node-less CI
 
 ## Tooling
 
-CI (`.github/workflows/ci.yml`) runs fmt + taplo + `clippy -D warnings` + build + test on an
-Arch container (toolchain pinned by `rust-toolchain.toml`), plus a `cargo-llvm-cov → Codecov`
-job. A `prek` pre-commit hook mirrors the lint gate locally. The lint set
+CI (`.github/workflows/ci.yml`) runs five jobs on every push and pull request: the main
+`ci` job (fmt + taplo + `clippy -D warnings` + build + test on an Arch container, toolchain
+pinned by `rust-toolchain.toml`); an `e2e` job that builds the `evm-harness`/`tron-harness`
+binaries (`--features e2e`), installs Chromium, and runs the Playwright mock-wallet suite
+against the real Rust bridge; a `ts-binding` job that builds the signer binary, then
+typechecks and tests the [TypeScript binding](ts) against the real `serve` subprocess; a
+`go-binding` job that builds the binary, then runs `gofmt`/`go vet`/`go test` on the
+[Go binding](go) against the real `serve` subprocess; and a `cargo-llvm-cov → Codecov`
+coverage job. A `prek` pre-commit hook mirrors the lint gate locally. The lint set
 (`[workspace.lints]`) is clippy `all + pedantic + nursery + cargo` plus targeted restriction
 picks and several rust lints, with documented `allow`s for the few that are pure noise on a
 pre-publish, multi-dependency workspace.
@@ -226,7 +233,13 @@ child you spawned).
     subprocess and drives it over `/api/v1`, plus a viem `CustomTransport` + hybrid account
     (`transport.ts`, `viem-account.ts`) ported from the reference. Tested against the real
     subprocess with a fake-wallet stand-in.
-  - *Go:* same shape as TS, if/when needed (not yet built).
+  - *Go:* [`go/`](go) — `EVMClient` / `TronClient` spawn and supervise the `serve` subprocess and
+    drive it over `/api/v1`. A thin, dependency-free (stdlib-only) client covering both chains
+    (connect / send / trigger / deploy / message + typed-data signing); every op takes a
+    `context.Context` and coded errors surface as typed values (`WrongWalletAddressError`). No
+    viem-style layer — Go's go-ethereum signing model fits the wallet's `eth_sendTransaction`
+    poorly, so the raw client is the whole surface. Tested against the real subprocess, reusing the
+    TS binding's fake-wallet stand-in.
 - **Phase 5 — full multi-client daemon (deferred; build only on demand).** A standalone
   `daemon start|stop|status` with a discovery file (`{port, pid, token}`), bearer-token auth, a
   control API (`POST /api/v1/…`), a request queue serializing human approval, a session cache,

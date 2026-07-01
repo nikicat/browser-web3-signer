@@ -141,7 +141,8 @@ message + typed-data signing), with an embedded approval UI per chain.
 **E2E browser tests**: a Playwright suite drives a mock wallet against the real Rust bridge for
 **both EVM and TRON** (connect, sign, send/trigger/deploy, reject, cancel, address mismatch),
 testing the full browser interaction flow. Run with `just e2e-setup && just e2e` (one-time
-`npm install` + Chromium download, then `just e2e`).
+`npm install` + Chromium download, then `just e2e`). CI runs it as a dedicated job on every
+push and PR.
 
 **Control API** (`serve`): `browser-web3-signer serve --chain evm|tron` runs the bridge on a
 stable port for its lifetime and exposes `POST /api/v1/request` + `GET /api/v1/health`, printing
@@ -151,6 +152,11 @@ the bound port to stdout. This is the long-lived mode language bindings spawn an
 `serve` subprocess and drives it over `/api/v1`, plus a **viem** transport + hybrid account — so a
 TS program signs with the user's browser wallet, and the persistent tab skips the reconnect prompt
 across calls.
+
+**Go binding** ([`go/`](go)): `EVMClient` / `TronClient` — a thin, dependency-free (stdlib-only)
+client that spawns and supervises the `serve` subprocess and drives it over `/api/v1`, covering
+**both EVM and TRON**. Every operation takes a `context.Context`; coded errors surface as typed
+values (`WrongWalletAddressError`).
 
 Persistent sessions in Rust: hold a single `EvmSigner` / `TronSigner` and reuse it — same stable
 port, same effect (the pattern the reference's long-lived `WalletSigner` uses; no daemon required).
