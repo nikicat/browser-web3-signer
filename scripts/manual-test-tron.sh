@@ -53,6 +53,12 @@ readonly TOKEN_XFER=100000000000000000000     # 100 tokens transferred by the wa
 # It does NOT route anything — TronLink builds/broadcasts against its own active node.
 readonly CONNECT_NETWORK="nile"
 
+# chainId embedded in the TIP-712 domain. TronLink requires the typed-data domain to carry a
+# chainId AND requires it to equal the wallet's *active* chainId — for a custom local node it
+# reports TRON mainnet's (728126428), since tre mimics mainnet. Override if your TronLink reports
+# a different value (shown in its "chainId X must match" error).
+readonly TRON_CHAIN_ID="${TRON_CHAIN_ID:-728126428}"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly ROOT_DIR
 readonly TOOL_DIR="$ROOT_DIR/scripts/tron"
@@ -243,13 +249,12 @@ stage_sign_typed_data() {
   step "3/5  Sign typed data (TIP-712)"
   local typed_file tsig
   typed_file="$(mktemp --suffix=.json)"
-  # No chainId in the domain: TronLink rejects a typed-data domain whose chainId doesn't match the
-  # wallet's active chainId, and a custom local node reports mainnet's (728126428), which we can't
-  # know from here. chainId is optional in EIP-712/TIP-712, and TronLink doesn't inject one when
-  # it's absent — so signer and verifier (ethers) hash the same domain and recovery matches.
+  # The domain carries TRON_CHAIN_ID: TronLink requires a chainId and requires it to match the
+  # wallet's active chainId (mainnet's for a custom node — see the constant above). Signer and
+  # verifier (ethers) hash the same domain, so recovery matches.
   cat > "$typed_file" <<JSON
 {
-  "domain": { "name": "Tron Test", "version": "1" },
+  "domain": { "name": "Tron Test", "version": "1", "chainId": $TRON_CHAIN_ID },
   "types": { "Message": [{ "name": "content", "type": "string" }] },
   "primaryType": "Message",
   "message": { "content": "typed data over tron" }
