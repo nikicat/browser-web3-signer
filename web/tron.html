@@ -574,9 +574,13 @@
       </div>
     </div>
 
+    <script src="/app-core.js"></script>
     <script>
       (function () {
         "use strict";
+
+        var C = window.WalletSignerCore;
+        var $ = C.$, show = C.show, hide = C.hide;
 
         // --- Utilities ---
         function formatSun(sunStr) {
@@ -587,34 +591,9 @@
           return frac ? whole + "." + frac : whole;
         }
 
-        // TRON Base58 addresses are case-sensitive, unlike EVM 0x-hex addresses.
-        function addressMatch(a, b) {
-          return String(a) === String(b);
-        }
-        function truncAddr(addr) {
-          if (!addr || addr.length < 10) return String(addr);
-          return addr.slice(0, 6) + "..." + addr.slice(-4);
-        }
-
-        function $(id) {
-          return document.getElementById(id);
-        }
-        function show(el) {
-          el.classList.remove("hidden");
-        }
-        function hide(el) {
-          el.classList.add("hidden");
-        }
-
-        var ALL_VIEWS = ["view-loading", "view-error", "view-not-found", "view-connect", "view-tx", "view-msg"];
-        function showView(id) {
-          for (var i = 0; i < ALL_VIEWS.length; i++) hide($(ALL_VIEWS[i]));
-          show($(id));
-        }
-
         // --- TronLink readiness ---
-        // TronLink injects window.tronWeb asynchronously. tronLink.ready flips to true once
-        // the user has unlocked and authorised the page. We wait up to ~3s.
+        // TronLink injects window.tronWeb asynchronously. tronLink.ready flips to true once the
+        // user has unlocked and authorised the page. We wait up to ~3s.
         function waitForTronWeb(timeoutMs) {
           var deadline = Date.now() + (timeoutMs || 3000);
           return new Promise(function (resolve) {
@@ -658,15 +637,6 @@
           return addr;
         }
 
-        // --- TronLink network detection ---
-        // tronWeb.fullNode.host carries the connected node URL; we compare against the
-        // network the request asked for and surface a soft warning if they diverge.
-        function currentNetworkHost() {
-          var tw = window.tronWeb;
-          if (!tw || !tw.fullNode || !tw.fullNode.host) return "";
-          return tw.fullNode.host;
-        }
-
         function networkLabel(network) {
           if (network === "shasta") return "Shasta Testnet";
           if (network === "nile") return "Nile Testnet";
@@ -674,126 +644,50 @@
           return network || "Tron Mainnet";
         }
 
-        // --- API Client ---
-        async function fetchPendingRequest(id) {
-          var res = await fetch("/api/pending/" + id);
-          if (!res.ok) {
-            var err = await res.json().catch(function () {
-              return { error: "Unknown error" };
-            });
-            throw new Error(err.error || "HTTP " + res.status);
-          }
-          return (await res.json()).request;
-        }
+        // --- Chain adapter ---
+        C.init({
+          logTag: "browser-tron-signer",
 
-        async function completeSuccess(id, result) {
-          var res = await fetch("/api/complete/" + id, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ success: true, result: result }),
-          });
-          if (!res.ok) {
-            var err = await res.json().catch(function () {
-              return { error: "Unknown error" };
-            });
-            throw new Error(err.error || "HTTP " + res.status);
-          }
-        }
+          setup: async function () {
+            // Give TronLink a moment to inject before we paint the "no wallet" state.
+            await waitForTronWeb(1500);
+          },
+          hasWallet: hasTronLink,
+          walletName: function () {
+            return "TronLink";
+          },
+          walletIcon: function () {
+            return null;
+          },
+          // TRON Base58 addresses are case-sensitive, unlike EVM 0x-hex addresses.
+          addressMatch: function (a, b) {
+            return String(a) === String(b);
+          },
+          currentAddress: async function () {
+            return getConnectedAddress();
+          },
+          requestAccounts: requestAccounts,
+          // TronLink has no accountsChanged event we resume from; stay in the wrong-address view.
+          onAccountsChanged: function () {
+            return function () {};
+          },
 
-        async function completeError(id, error, code) {
-          await fetch("/api/complete/" + id, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ success: false, error: error, code: code }),
-          }).catch(function () {});
-        }
-
-        // Keep in sync with `SignerErrorCode` in wallet-signer-core/src/errors.ts.
-        var ERROR_CODE_WRONG_WALLET_ADDRESS = "WRONG_WALLET_ADDRESS";
-
-        // --- App State ---
-        var request = null;
-        var viewStatus = "idle";
-        var viewError = "";
-        var connectedAddress = "";
-        var txHash = "";
-        var deployedAddress = "";
-        var signature = "";
-
-        // --- View renderers ---
-
-        var CONNECT_SECTIONS = ["connect-no-wallet", "connect-success", "connect-wrong", "connect-err", "connect-idle"];
-
-        function renderConnect() {
-          if (request.network) {
-            $("connect-chain").textContent = networkLabel(request.network);
-            show($("connect-chain"));
-          } else hide($("connect-chain"));
-
-          if (request.address && viewStatus !== "success" && viewStatus !== "wrong_address") {
-            $("connect-required-text").textContent = request.address;
-            show($("connect-required"));
-          } else hide($("connect-required"));
-
-          for (var i = 0; i < CONNECT_SECTIONS.length; i++) hide($(CONNECT_SECTIONS[i]));
-
-          if (!hasTronLink()) {
-            show($("connect-no-wallet"));
-          } else if (viewStatus === "success") {
-            $("connect-success-addr").textContent = connectedAddress;
-            show($("connect-success"));
-          } else if (viewStatus === "wrong_address") {
-            $("connect-wrong-expected").textContent = request.address;
-            $("connect-wrong-got").textContent = connectedAddress;
-            show($("connect-wrong"));
-          } else if (viewStatus === "error") {
-            $("connect-err-msg").textContent = viewError;
-            show($("connect-err"));
-          } else {
-            var btn = $("connect-btn");
-            btn.disabled = viewStatus === "connecting";
-            btn.textContent = viewStatus === "connecting" ? "Connecting..." : "Connect";
-            show($("connect-idle"));
-          }
-        }
-
-        function renderTx() {
-          hide($("tx-success"));
-          hide($("tx-wrong"));
-          hide($("tx-err"));
-          hide($("tx-details"));
-          hide($("tx-no-wallet"));
-          hide($("tx-footer"));
-
-          var isContract = request.type === "trigger_contract";
-          var isDeploy = request.type === "deploy_contract";
-          $("tx-heading").textContent = isDeploy ? "Deploy Contract" : isContract ? "Call Contract" : "Send TRX";
-
-          if (request.from && viewStatus !== "success" && viewStatus !== "wrong_address") {
-            $("tx-required-text").textContent = request.from;
-            show($("tx-required"));
-          } else hide($("tx-required"));
-
-          if (viewStatus === "success") {
-            $("tx-hash").textContent = txHash;
-            if (isDeploy && deployedAddress) {
-              $("tx-deployed").textContent = deployedAddress;
-              show($("tx-deployed-row"));
-              show($("tx-details"));
-            } else {
-              hide($("tx-deployed-row"));
-            }
-            show($("tx-success"));
-          } else if (viewStatus === "wrong_address") {
-            $("tx-wrong-expected").textContent = request.from;
-            $("tx-wrong-got").textContent = connectedAddress;
-            show($("tx-wrong"));
-            return;
-          } else if (viewStatus === "error") {
-            $("tx-err-msg").textContent = viewError;
-            show($("tx-err"));
-          } else {
+          badgeText: function (request) {
+            return request.network ? networkLabel(request.network) : null;
+          },
+          confirmLabel: "Confirm in TronLink...",
+          txHeading: function (request) {
+            if (request.type === "deploy_contract") return "Deploy Contract";
+            if (request.type === "trigger_contract") return "Call Contract";
+            return "Send TRX";
+          },
+          txButtonLabel: function (request) {
+            return request.type === "deploy_contract" ? "Deploy" : "Sign & Send";
+          },
+          renderTxDetails: function (request) {
             hide($("tx-deployed-row"));
+            var isContract = request.type === "trigger_contract";
+            var isDeploy = request.type === "deploy_contract";
             if (isDeploy) {
               $("tx-to-label").textContent = "Contract";
               $("tx-to").textContent = request.contractName || "(unnamed)";
@@ -839,392 +733,109 @@
               $("tx-network").textContent = networkLabel(request.network);
               show($("tx-network-row"));
             } else hide($("tx-network-row"));
-            show($("tx-details"));
-          }
+          },
+          renderTxSuccessExtra: function (request, ctx) {
+            if (request.type === "deploy_contract" && ctx.deployedAddress) {
+              $("tx-deployed").textContent = ctx.deployedAddress;
+              show($("tx-deployed-row"));
+              show($("tx-details"));
+            } else {
+              hide($("tx-deployed-row"));
+            }
+          },
 
-          if (!hasTronLink()) {
-            show($("tx-no-wallet"));
-          } else if (viewStatus !== "success") {
-            if (connectedAddress) {
-              $("tx-connected").textContent = "Connected: " + truncAddr(connectedAddress);
-              show($("tx-connected"));
-            } else hide($("tx-connected"));
-            var btn = $("tx-btn");
-            btn.disabled = viewStatus === "connecting" || viewStatus === "signing";
-            btn.textContent = viewStatus === "connecting"
-              ? "Connecting..."
-              : viewStatus === "signing"
-              ? "Confirm in TronLink..."
-              : request.type === "deploy_contract"
-              ? "Deploy"
-              : "Sign & Send";
-            show($("tx-footer"));
-          }
-        }
+          sendTx: async function (request, from) {
+            var tw = window.tronWeb;
+            if (!tw) throw new Error("TronLink not ready");
 
-        function renderMsg() {
-          var isTypedData = request.type === "sign_typed_data";
-          $("msg-heading").textContent = isTypedData ? "Sign Typed Data" : "Sign Message";
-
-          hide($("msg-success"));
-          hide($("msg-wrong"));
-          hide($("msg-err"));
-          hide($("msg-content"));
-          hide($("msg-chain"));
-          hide($("msg-no-wallet"));
-          hide($("msg-footer"));
-
-          if (request.address && viewStatus !== "success" && viewStatus !== "wrong_address") {
-            $("msg-required-text").textContent = request.address;
-            show($("msg-required"));
-          } else hide($("msg-required"));
-
-          if (viewStatus === "success") {
-            $("msg-sig").textContent = signature;
-            show($("msg-success"));
-          } else if (viewStatus === "wrong_address") {
-            $("msg-wrong-expected").textContent = request.address;
-            $("msg-wrong-got").textContent = connectedAddress;
-            show($("msg-wrong"));
-            return;
-          } else if (viewStatus === "error") {
-            $("msg-err-msg").textContent = viewError;
-            show($("msg-err"));
-          } else {
-            if (isTypedData) {
-              hide($("msg-plain"));
-              $("msg-typed-data").textContent = JSON.stringify(
-                { domain: request.domain, primaryType: request.primaryType, message: request.message },
-                null,
-                2,
+            var unsignedTx;
+            var newContractAddress = "";
+            if (request.type === "trigger_contract") {
+              var options = {};
+              if (request.feeLimit) options.feeLimit = Number(BigInt(request.feeLimit));
+              if (request.callValue) options.callValue = Number(BigInt(request.callValue));
+              var built = await tw.transactionBuilder.triggerSmartContract(
+                request.contractAddress,
+                request.functionSelector,
+                options,
+                request.parameters || [],
+                from,
               );
-              show($("msg-typed"));
+              if (!built || !built.result || built.result.result !== true) {
+                throw new Error("Failed to build contract call: " + JSON.stringify(built && built.result));
+              }
+              unsignedTx = built.transaction;
+            } else if (request.type === "deploy_contract") {
+              // tronWeb.transactionBuilder.createSmartContract expects raw constructor values; types
+              // come from the ABI. Strip {type, value} wrappers if present (our API shape mirrors
+              // triggerContract, which does want {type, value} pairs).
+              var rawDeployParams = (request.parameters || []).map(function (p) {
+                return (p && typeof p === "object" && Object.prototype.hasOwnProperty.call(p, "value")) ? p.value : p;
+              });
+              var deployOpts = {
+                abi: request.abi,
+                bytecode: request.bytecode,
+                feeLimit: Number(BigInt(request.feeLimit || "1500000000")),
+                callValue: Number(BigInt(request.callValue || "0")),
+                userFeePercentage: typeof request.userFeePercentage === "number" ? request.userFeePercentage : 100,
+                originEnergyLimit: typeof request.originEnergyLimit === "number" ? request.originEnergyLimit : 10000000,
+                name: request.contractName || "Contract",
+                parameters: rawDeployParams,
+              };
+              unsignedTx = await tw.transactionBuilder.createSmartContract(deployOpts, from);
+              var contractAddrHex = unsignedTx && (
+                unsignedTx.contract_address ||
+                (unsignedTx.raw_data &&
+                  unsignedTx.raw_data.contract &&
+                  unsignedTx.raw_data.contract[0] &&
+                  unsignedTx.raw_data.contract[0].parameter &&
+                  unsignedTx.raw_data.contract[0].parameter.value &&
+                  unsignedTx.raw_data.contract[0].parameter.value.new_contract &&
+                  unsignedTx.raw_data.contract[0].parameter.value.new_contract.contract_address)
+              );
+              if (!contractAddrHex) {
+                throw new Error("Failed to read contract_address from createSmartContract result");
+              }
+              newContractAddress = tw.address.fromHex(contractAddrHex);
             } else {
-              hide($("msg-typed"));
-              $("msg-text").textContent = request.message;
-              show($("msg-plain"));
+              unsignedTx = await tw.transactionBuilder.sendTrx(request.to, Number(BigInt(request.amount)), from);
             }
-            show($("msg-content"));
-            if (request.network) {
-              $("msg-chain").textContent = networkLabel(request.network);
-              show($("msg-chain"));
+
+            var signedTx = await tw.trx.sign(unsignedTx);
+            var broadcast = await tw.trx.sendRawTransaction(signedTx);
+            if (!broadcast || broadcast.result !== true) {
+              var msg = (broadcast && broadcast.message)
+                ? (typeof broadcast.message === "string" ? broadcast.message : JSON.stringify(broadcast.message))
+                : "Broadcast failed";
+              throw new Error(msg);
             }
-          }
 
-          if (!hasTronLink()) {
-            show($("msg-no-wallet"));
-          } else if (viewStatus !== "success") {
-            if (connectedAddress) {
-              $("msg-connected").textContent = "Connected: " + truncAddr(connectedAddress);
-              show($("msg-connected"));
-            } else hide($("msg-connected"));
-            var btn = $("msg-btn");
-            btn.disabled = viewStatus === "connecting" || viewStatus === "signing";
-            btn.textContent = viewStatus === "connecting"
-              ? "Connecting..."
-              : viewStatus === "signing"
-              ? "Confirm in TronLink..."
-              : "Sign";
-            show($("msg-footer"));
-          }
-        }
+            var txHash = signedTx.txID || (broadcast.transaction && broadcast.transaction.txID);
+            if (!txHash) throw new Error("No txID returned from broadcast");
 
-        function render() {
-          if (request === null) return;
-          if (request.type === "connect") renderConnect();
-          else if (
-            request.type === "send_transaction" ||
-            request.type === "trigger_contract" ||
-            request.type === "deploy_contract"
-          ) renderTx();
-          else if (request.type === "sign_message" || request.type === "sign_typed_data") renderMsg();
-        }
-
-        // --- Connect Handlers ---
-        async function finishConnect(address) {
-          await completeSuccess(request.id, address);
-          viewStatus = "success";
-          connectedAddress = address;
-          render();
-          setTimeout(function () {
-            window.close();
-          }, 1500);
-        }
-
-        function expectedAddress() {
-          if (
-            request.type === "send_transaction" ||
-            request.type === "trigger_contract" ||
-            request.type === "deploy_contract"
-          ) return request.from;
-          return request.address;
-        }
-
-        function wrongAddressMessage() {
-          return "Wrong wallet address: expected " + expectedAddress() + ", got " + connectedAddress;
-        }
-
-        async function rejectWith(defaultReason) {
-          if (viewStatus === "wrong_address") {
-            await completeError(request.id, wrongAddressMessage(), ERROR_CODE_WRONG_WALLET_ADDRESS);
-          } else {
-            await completeError(request.id, defaultReason);
-          }
-        }
-
-        window.app = {
-          handleConnect: async function () {
-            viewStatus = "connecting";
-            viewError = "";
-            render();
-            try {
-              var address = await requestAccounts();
-              connectedAddress = address;
-              if (request.address && !addressMatch(address, request.address)) {
-                viewStatus = "wrong_address";
-                render();
-                return;
-              }
-              await finishConnect(address);
-            } catch (err) {
-              // Show the error IN-PAGE and stay open so the user can retry (Try Again) or abort
-              // (Cancel). We do NOT completeError here — the caller only hears back on an explicit
-              // Cancel, not on a recoverable wallet rejection/error (matches evm.html).
-              viewError = err instanceof Error ? err.message : "Connection failed";
-              viewStatus = "error";
-              render();
+            if (request.type === "deploy_contract") {
+              return {
+                settled: JSON.stringify({ txHash: txHash, contractAddress: newContractAddress }),
+                txHash: txHash,
+                contractAddress: newContractAddress,
+              };
             }
+            return { settled: txHash, txHash: txHash };
           },
-
-          cancelConnect: async function () {
-            await rejectWith("User cancelled");
-            window.close();
+          signMessage: async function (request) {
+            var tw = window.tronWeb;
+            if (!tw) throw new Error("TronLink not ready");
+            return tw.trx.signMessageV2(request.message);
           },
-
-          handleSignTx: async function () {
-            viewStatus = "connecting";
-            viewError = "";
-            render();
-            try {
-              var connected = getConnectedAddress();
-              if (!connected) connected = await requestAccounts();
-              connectedAddress = connected;
-
-              if (request.from && !addressMatch(connectedAddress, request.from)) {
-                viewStatus = "wrong_address";
-                render();
-                return;
-              }
-
-              viewStatus = "signing";
-              render();
-
-              var tw = window.tronWeb;
-              if (!tw) throw new Error("TronLink not ready");
-
-              var unsignedTx;
-              var newContractAddress = "";
-              if (request.type === "trigger_contract") {
-                var options = {};
-                if (request.feeLimit) options.feeLimit = Number(BigInt(request.feeLimit));
-                if (request.callValue) options.callValue = Number(BigInt(request.callValue));
-                var built = await tw.transactionBuilder.triggerSmartContract(
-                  request.contractAddress,
-                  request.functionSelector,
-                  options,
-                  request.parameters || [],
-                  connectedAddress,
-                );
-                if (!built || !built.result || built.result.result !== true) {
-                  throw new Error("Failed to build contract call: " + JSON.stringify(built && built.result));
-                }
-                unsignedTx = built.transaction;
-              } else if (request.type === "deploy_contract") {
-                // tronWeb.transactionBuilder.createSmartContract expects raw constructor values;
-                // types come from the ABI. Strip {type, value} wrappers if present (our API
-                // shape mirrors triggerContract, which does want {type, value} pairs).
-                var rawDeployParams = (request.parameters || []).map(function (p) {
-                  return (p && typeof p === "object" && Object.prototype.hasOwnProperty.call(p, "value")) ? p.value : p;
-                });
-                var deployOpts = {
-                  abi: request.abi,
-                  bytecode: request.bytecode,
-                  feeLimit: Number(BigInt(request.feeLimit || "1500000000")),
-                  callValue: Number(BigInt(request.callValue || "0")),
-                  userFeePercentage: typeof request.userFeePercentage === "number" ? request.userFeePercentage : 100,
-                  originEnergyLimit: typeof request.originEnergyLimit === "number" ? request.originEnergyLimit : 10000000,
-                  name: request.contractName || "Contract",
-                  parameters: rawDeployParams,
-                };
-                unsignedTx = await tw.transactionBuilder.createSmartContract(deployOpts, connectedAddress);
-                var contractAddrHex = unsignedTx && (
-                  unsignedTx.contract_address ||
-                  (unsignedTx.raw_data &&
-                    unsignedTx.raw_data.contract &&
-                    unsignedTx.raw_data.contract[0] &&
-                    unsignedTx.raw_data.contract[0].parameter &&
-                    unsignedTx.raw_data.contract[0].parameter.value &&
-                    unsignedTx.raw_data.contract[0].parameter.value.new_contract &&
-                    unsignedTx.raw_data.contract[0].parameter.value.new_contract.contract_address)
-                );
-                if (!contractAddrHex) {
-                  throw new Error("Failed to read contract_address from createSmartContract result");
-                }
-                newContractAddress = tw.address.fromHex(contractAddrHex);
-              } else {
-                unsignedTx = await tw.transactionBuilder.sendTrx(
-                  request.to,
-                  Number(BigInt(request.amount)),
-                  connectedAddress,
-                );
-              }
-
-              var signedTx = await tw.trx.sign(unsignedTx);
-              var broadcast = await tw.trx.sendRawTransaction(signedTx);
-              if (!broadcast || broadcast.result !== true) {
-                var msg = (broadcast && broadcast.message)
-                  ? (typeof broadcast.message === "string" ? broadcast.message : JSON.stringify(broadcast.message))
-                  : "Broadcast failed";
-                throw new Error(msg);
-              }
-
-              txHash = signedTx.txID || (broadcast.transaction && broadcast.transaction.txID);
-              if (!txHash) throw new Error("No txID returned from broadcast");
-
-              if (request.type === "deploy_contract") {
-                deployedAddress = newContractAddress;
-                await completeSuccess(
-                  request.id,
-                  JSON.stringify({ txHash: txHash, contractAddress: newContractAddress }),
-                );
-              } else {
-                await completeSuccess(request.id, txHash);
-              }
-              viewStatus = "success";
-              render();
-              setTimeout(function () {
-                window.close();
-              }, 2000);
-            } catch (err) {
-              console.error("[browser-tron-signer] transaction error:", err);
-              // Show the error IN-PAGE and stay open so the user can retry (Sign & Send) or abort
-              // (Reject). We do NOT completeError here — the caller only hears back on an explicit
-              // Reject, not on a recoverable wallet rejection/error (matches evm.html).
-              viewError = err instanceof Error ? err.message : "Transaction failed";
-              viewStatus = "error";
-              render();
+          signTypedData: async function (request) {
+            var tw = window.tronWeb;
+            if (!tw) throw new Error("TronLink not ready");
+            if (typeof tw.trx._signTypedData !== "function") {
+              throw new Error("This version of TronLink does not support TIP-712 typed-data signing");
             }
+            return tw.trx._signTypedData(request.domain, request.types, request.message);
           },
-
-          rejectTx: async function () {
-            await rejectWith("User rejected transaction");
-            window.close();
-          },
-
-          handleSignMsg: async function () {
-            viewStatus = "connecting";
-            viewError = "";
-            render();
-            try {
-              var connected = getConnectedAddress();
-              if (!connected) connected = await requestAccounts();
-              connectedAddress = connected;
-
-              if (request.address && !addressMatch(connectedAddress, request.address)) {
-                viewStatus = "wrong_address";
-                render();
-                return;
-              }
-
-              viewStatus = "signing";
-              render();
-
-              var tw = window.tronWeb;
-              if (!tw) throw new Error("TronLink not ready");
-
-              var sig;
-              if (
-                request.type === "sign_typed_data" && request.domain && request.types && request.primaryType && request.message
-              ) {
-                if (typeof tw.trx._signTypedData !== "function") {
-                  throw new Error("This version of TronLink does not support TIP-712 typed-data signing");
-                }
-                sig = await tw.trx._signTypedData(request.domain, request.types, request.message);
-              } else if (request.message) {
-                sig = await tw.trx.signMessageV2(request.message);
-              } else {
-                throw new Error("Invalid signing request");
-              }
-
-              signature = sig;
-              await completeSuccess(request.id, sig);
-              viewStatus = "success";
-              render();
-              setTimeout(function () {
-                window.close();
-              }, 2000);
-            } catch (err) {
-              console.error("[browser-tron-signer] signing error:", err);
-              // Show the error IN-PAGE and stay open so the user can retry (Sign) or abort (Reject).
-              // We do NOT completeError here — the caller only hears back on an explicit Reject, not
-              // on a recoverable wallet rejection/error (matches evm.html).
-              viewError = err instanceof Error ? err.message : "Signing failed";
-              viewStatus = "error";
-              render();
-            }
-          },
-
-          rejectSign: async function () {
-            await rejectWith("User rejected signing");
-            window.close();
-          },
-        };
-
-        // --- Init ---
-        async function init() {
-          // Give TronLink a moment to inject before we paint the "no wallet" state.
-          await waitForTronWeb(1500);
-
-          var connected = getConnectedAddress();
-          if (connected) connectedAddress = connected;
-
-          var path = window.location.pathname;
-          var match = path.match(/^\/(connect|sign)\/([a-f0-9-]+)$/);
-          if (!match) {
-            showView("view-not-found");
-            return;
-          }
-
-          try {
-            request = await fetchPendingRequest(match[2]);
-            if (request.type === "connect") {
-              showView("view-connect");
-              renderConnect();
-            } else if (
-              request.type === "send_transaction" ||
-              request.type === "trigger_contract" ||
-              request.type === "deploy_contract"
-            ) {
-              showView("view-tx");
-              renderTx();
-            } else if (request.type === "sign_message" || request.type === "sign_typed_data") {
-              showView("view-msg");
-              renderMsg();
-            } else {
-              showView("view-error");
-              $("error-msg").textContent = "Unknown request type";
-            }
-          } catch (err) {
-            var msg = err instanceof Error ? err.message : "Failed to load request";
-            if (msg.includes("not found") || msg.includes("404")) showView("view-not-found");
-            else {
-              $("error-msg").textContent = msg;
-              showView("view-error");
-            }
-          }
-        }
-
-        init();
+        });
       })();
     </script>
   </body>

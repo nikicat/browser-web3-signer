@@ -446,7 +446,7 @@
               />
             </svg>
           </div>
-          <h1>Send Transaction</h1>
+          <h1 id="tx-heading">Send Transaction</h1>
 
           <div id="tx-required" class="required-address hidden">
             Required: <span id="tx-required-text" class="address"></span>
@@ -593,71 +593,26 @@
       </div>
     </div>
 
+    <script src="/app-core.js"></script>
     <script>
       (function () {
         "use strict";
 
+        var C = window.WalletSignerCore;
+        var $ = C.$, show = C.show, hide = C.hide;
+
         // --- Chain metadata for wallet_addEthereumChain ---
         var CHAINS = {
-          1: {
-            name: "Ethereum",
-            symbol: "ETH",
-            decimals: 18,
-            rpc: "https://eth.llamarpc.com",
-            explorer: "https://etherscan.io",
-          },
-          11155111: {
-            name: "Sepolia",
-            symbol: "ETH",
-            decimals: 18,
-            rpc: "https://rpc.sepolia.org",
-            explorer: "https://sepolia.etherscan.io",
-          },
-          137: {
-            name: "Polygon",
-            symbol: "MATIC",
-            decimals: 18,
-            rpc: "https://polygon-rpc.com",
-            explorer: "https://polygonscan.com",
-          },
-          42161: {
-            name: "Arbitrum One",
-            symbol: "ETH",
-            decimals: 18,
-            rpc: "https://arb1.arbitrum.io/rpc",
-            explorer: "https://arbiscan.io",
-          },
-          10: {
-            name: "Optimism",
-            symbol: "ETH",
-            decimals: 18,
-            rpc: "https://mainnet.optimism.io",
-            explorer: "https://optimistic.etherscan.io",
-          },
-          8453: {
-            name: "Base",
-            symbol: "ETH",
-            decimals: 18,
-            rpc: "https://mainnet.base.org",
-            explorer: "https://basescan.org",
-          },
-          43114: {
-            name: "Avalanche",
-            symbol: "AVAX",
-            decimals: 18,
-            rpc: "https://api.avax.network/ext/bc/C/rpc",
-            explorer: "https://snowtrace.io",
-          },
-          56: {
-            name: "BNB Smart Chain",
-            symbol: "BNB",
-            decimals: 18,
-            rpc: "https://bsc-dataseed.binance.org",
-            explorer: "https://bscscan.com",
-          },
+          1: { name: "Ethereum", symbol: "ETH", decimals: 18, rpc: "https://eth.llamarpc.com", explorer: "https://etherscan.io" },
+          11155111: { name: "Sepolia", symbol: "ETH", decimals: 18, rpc: "https://rpc.sepolia.org", explorer: "https://sepolia.etherscan.io" },
+          137: { name: "Polygon", symbol: "MATIC", decimals: 18, rpc: "https://polygon-rpc.com", explorer: "https://polygonscan.com" },
+          42161: { name: "Arbitrum One", symbol: "ETH", decimals: 18, rpc: "https://arb1.arbitrum.io/rpc", explorer: "https://arbiscan.io" },
+          10: { name: "Optimism", symbol: "ETH", decimals: 18, rpc: "https://mainnet.optimism.io", explorer: "https://optimistic.etherscan.io" },
+          8453: { name: "Base", symbol: "ETH", decimals: 18, rpc: "https://mainnet.base.org", explorer: "https://basescan.org" },
+          43114: { name: "Avalanche", symbol: "AVAX", decimals: 18, rpc: "https://api.avax.network/ext/bc/C/rpc", explorer: "https://snowtrace.io" },
+          56: { name: "BNB Smart Chain", symbol: "BNB", decimals: 18, rpc: "https://bsc-dataseed.binance.org", explorer: "https://bscscan.com" },
         };
 
-        // --- Utilities ---
         function formatEther(weiStr) {
           if (!weiStr || weiStr === "0") return "0";
           var s = BigInt(weiStr).toString().padStart(19, "0");
@@ -666,31 +621,7 @@
           return frac ? whole + "." + frac : whole;
         }
 
-        function addressMatch(a, b) {
-          return a.toLowerCase() === b.toLowerCase();
-        }
-        function truncAddr(addr) {
-          return addr.slice(0, 6) + "..." + addr.slice(-4);
-        }
-
-        // --- DOM helpers ---
-        function $(id) {
-          return document.getElementById(id);
-        }
-        function show(el) {
-          el.classList.remove("hidden");
-        }
-        function hide(el) {
-          el.classList.add("hidden");
-        }
-
-        var ALL_VIEWS = ["view-loading", "view-error", "view-not-found", "view-connect", "view-tx", "view-msg"];
-        function showView(id) {
-          for (var i = 0; i < ALL_VIEWS.length; i++) hide($(ALL_VIEWS[i]));
-          show($(id));
-        }
-
-        // --- EIP-6963 Wallet Discovery ---
+        // --- EIP-6963 wallet discovery ---
         var _providerDetail = null;
 
         function discoverWallets() {
@@ -704,9 +635,6 @@
           if (_providerDetail) return _providerDetail.provider;
           return window.ethereum || null;
         }
-        function hasWallet() {
-          return getProvider() !== null;
-        }
         function getWalletName() {
           if (_providerDetail) return _providerDetail.info.name;
           var eth = window.ethereum;
@@ -718,12 +646,12 @@
           return _providerDetail ? _providerDetail.info.icon : null;
         }
 
-        // --- Raw RPC Wallet Functions ---
+        // --- Raw RPC ---
         async function rpc(method, params) {
           var provider = getProvider();
           if (!provider) throw new Error("No wallet detected");
-          // Trace every provider call + its outcome, so the console pinpoints exactly which
-          // wallet method throws (e.g. an internal -32603) rather than only the final message.
+          // Trace every provider call + its outcome, so the console pinpoints exactly which wallet
+          // method throws (e.g. an internal -32603) rather than only the final message.
           console.debug("[browser-evm-signer] → provider.request", method, params || []);
           try {
             var out = await provider.request({ method: method, params: params || [] });
@@ -734,29 +662,6 @@
               "code:", e && e.code, "data:", e && e.data, "err:", e);
             throw e;
           }
-        }
-
-        // Extract a human message from a thrown value. EIP-1193 provider errors are plain
-        // objects ({ code, message, data }), not Error instances, so `err.message` must be read
-        // directly; fall back to JSON so a cause is never swallowed into a generic string.
-        function errMessage(err, fallback) {
-          if (err instanceof Error && err.message) return err.message;
-          if (err && typeof err.message === "string" && err.message) {
-            return err.code !== undefined ? err.message + " (code " + err.code + ")" : err.message;
-          }
-          try { return fallback + ": " + JSON.stringify(err); } catch (_) { return fallback; }
-        }
-
-        async function requestAccounts() {
-          var accounts = await rpc("eth_requestAccounts");
-          if (!accounts || accounts.length === 0) throw new Error("No accounts returned from wallet");
-          return accounts;
-        }
-
-        async function getAccounts() {
-          var provider = getProvider();
-          if (!provider) return [];
-          return (await provider.request({ method: "eth_accounts" })) || [];
         }
 
         async function getChainId() {
@@ -773,20 +678,13 @@
          * internal `TypeError` ("p is not a function", code -32603) from the auto-switch it runs
          * after `wallet_addEthereumChain`. So each wallet call is best-effort, and every branch
          * ends by re-checking the real state.
-         *
-         * Flow: already-current? done. Else try a plain switch. If that reports the chain is
-         * unknown, add it, then confirm/settle the switch. If we still aren't on it, fail with an
-         * actionable message.
          */
-        async function switchChain(chainId) {
+        async function switchChain(chainId, request) {
           if (await onChain(chainId)) return;
-
           if (await trySwitch(chainId)) return; // succeeds when the network already exists
-
-          await addChain(chainId); // best-effort; may add-then-internally-throw
+          await addChain(chainId, request); // best-effort; may add-then-internally-throw
           if (await onChain(chainId)) return; // add usually auto-switches
           if (await trySwitch(chainId)) return; // otherwise switch onto the now-known chain
-
           throw new Error("could not switch the wallet to chain " + chainId +
             " — add the network for chain " + chainId + " manually and retry");
         }
@@ -823,9 +721,9 @@
          * is logged, not propagated, because MetaMask commonly adds the chain and *then* throws
          * from its internal auto-switch — the caller verifies the resulting chain state.
          */
-        async function addChain(chainId) {
+        async function addChain(chainId, request) {
           try {
-            await rpc("wallet_addEthereumChain", [buildAddChainParams(chainId)]);
+            await rpc("wallet_addEthereumChain", [buildAddChainParams(chainId, request)]);
           } catch (err) {
             console.warn("[browser-evm-signer] wallet_addEthereumChain threw (verifying state anyway):", err);
           }
@@ -837,7 +735,7 @@
          * Omits `blockExplorerUrls` entirely when unknown — MetaMask rejects an explicit
          * `undefined`.
          */
-        function buildAddChainParams(chainId) {
+        function buildAddChainParams(chainId, request) {
           var chain = CHAINS[chainId];
           var rpcUrl = (chain && chain.rpc) || request.rpcUrl;
           if (!rpcUrl) throw new Error("Unknown chain ID " + chainId + " and no rpcUrl provided");
@@ -860,27 +758,6 @@
           return nested === 4902;
         }
 
-        async function walletSendTransaction(params) {
-          var tx = { from: params.from, to: params.to };
-          if (params.value) tx.value = params.value;
-          if (params.data) tx.data = params.data;
-          if (params.gas) tx.gas = params.gas;
-          if (params.maxFeePerGas) tx.maxFeePerGas = params.maxFeePerGas;
-          if (params.maxPriorityFeePerGas) tx.maxPriorityFeePerGas = params.maxPriorityFeePerGas;
-          return rpc("eth_sendTransaction", [tx]);
-        }
-
-        async function walletSignMessage(message, account) {
-          var hex = "0x" + Array.from(new TextEncoder().encode(message)).map(function (b) {
-            return b.toString(16).padStart(2, "0");
-          }).join("");
-          return rpc("personal_sign", [hex, account]);
-        }
-
-        async function walletSignTypedData(typedData, account) {
-          return rpc("eth_signTypedData_v4", [account, JSON.stringify(typedData)]);
-        }
-
         // Build the EIP712Domain type declaration from the domain fields actually present, in the
         // canonical order. eth_signTypedData_v4 hashes the domain over exactly the fields declared
         // here — declaring an EMPTY EIP712Domain makes a strict wallet hash an empty domain, whose
@@ -901,185 +778,62 @@
           return out;
         }
 
-        function onAccountsChanged(cb) {
-          var provider = getProvider();
-          if (!provider) return function () {};
-          provider.on("accountsChanged", cb);
-          return function () {
-            provider.removeListener("accountsChanged", cb);
-          };
+        // Ensure the wallet is on the request's chain before a signing/sending operation.
+        async function ensureChain(request) {
+          if (!request.chainId) return;
+          if ((await getChainId()) !== request.chainId) await switchChain(request.chainId, request);
         }
 
-        // --- API Client ---
-        async function fetchPendingRequest(id) {
-          var res = await fetch("/api/pending/" + id);
-          if (!res.ok) {
-            var err = await res.json().catch(function () {
-              return { error: "Unknown error" };
-            });
-            throw new Error(err.error || "HTTP " + res.status);
-          }
-          return (await res.json()).request;
-        }
+        // --- Chain adapter ---
+        C.init({
+          logTag: "browser-evm-signer",
 
-        async function completeSuccess(id, result) {
-          var res;
-          try {
-            res = await fetch("/api/complete/" + id, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ success: true, result: result }),
-            });
-          } catch (netErr) {
-            // A network-level failure (connection refused) means the signer process that served
-            // this page has exited — usually because this is a stale tab from an earlier run.
-            // Terminal: retrying can never reach a bridge that no longer exists.
-            var ne = new Error("the signer process is no longer running (connection refused)");
-            ne.terminal = true;
-            throw ne;
-          }
-          if (!res.ok) {
-            var err = await res.json().catch(function () {
-              return { error: "Unknown error" };
-            });
-            // 404 = this bridge no longer knows the request (it timed out, or this tab belongs to
-            // an exited process whose port was recycled). That's terminal — not worth retrying.
-            var e = new Error(err.error || "HTTP " + res.status);
-            e.terminal = res.status === 404;
-            throw e;
-          }
-        }
+          setup: async function () {
+            discoverWallets();
+          },
+          hasWallet: function () {
+            return getProvider() !== null;
+          },
+          walletName: getWalletName,
+          walletIcon: getWalletIcon,
+          // EVM addresses are case-insensitive 0x-hex.
+          addressMatch: function (a, b) {
+            return String(a).toLowerCase() === String(b).toLowerCase();
+          },
+          currentAddress: async function () {
+            var provider = getProvider();
+            if (!provider) return "";
+            var accounts = (await provider.request({ method: "eth_accounts" })) || [];
+            return accounts.length ? accounts[0] : "";
+          },
+          requestAccounts: async function () {
+            var accounts = await rpc("eth_requestAccounts");
+            if (!accounts || accounts.length === 0) throw new Error("No accounts returned from wallet");
+            return accounts[0];
+          },
+          onAccountsChanged: function (cb) {
+            var provider = getProvider();
+            if (!provider) return function () {};
+            var handler = function (accounts) {
+              cb(accounts && accounts.length ? accounts[0] : null);
+            };
+            provider.on("accountsChanged", handler);
+            return function () {
+              provider.removeListener("accountsChanged", handler);
+            };
+          },
 
-        async function completeError(id, error, code) {
-          await fetch("/api/complete/" + id, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ success: false, error: error, code: code }),
-          }).catch(function () {});
-        }
-
-        // Deliver the already-settled result to the bridge. Safe to call repeatedly: the wallet
-        // work is done, so this only (re)tries the POST. On a delivery failure it shows a state
-        // whose action retries DELIVERY, never the signing — so a tx can never be re-broadcast.
-        async function deliverSettled() {
-          try {
-            await completeSuccess(request.id, settledResult);
-            viewStatus = "success";
-            render();
-            setTimeout(function () { window.close(); }, 2000);
-          } catch (err) {
-            console.error("[browser-evm-signer] result delivery failed:", err);
-            if (err && err.terminal) {
-              // The signer is gone / the request expired — retrying delivery can't help. This is
-              // almost always a STALE TAB left from an earlier run; close it and re-run the CLI.
-              viewError = "This window is stale — the signer that opened it is no longer running " +
-                "(it exited, or the request expired). Any wallet action here already completed; " +
-                "close this window and re-run the command.";
-            } else {
-              viewError = errMessage(err, "Could not deliver the result to the signer") +
-                " — the wallet action already succeeded; retry delivery (this will NOT re-sign).";
-            }
-            viewStatus = "error";
-            render();
-          }
-        }
-
-        // Keep in sync with `SignerErrorCode` in src/errors.ts.
-        var ERROR_CODE_WRONG_WALLET_ADDRESS = "WRONG_WALLET_ADDRESS";
-
-        // --- App State ---
-        var request = null;
-        var viewStatus = "idle";
-        var viewError = "";
-        var connectedAddress = "";
-        var txHash = "";
-        var signature = "";
-        var unsubAccountsChanged = null;
-        // Once the wallet returns a result (tx hash / signature / address), it is stored here so a
-        // delivery failure (e.g. the bridge went away) NEVER causes a re-sign / re-broadcast.
-        // Retrying only re-attempts delivery of this already-settled value.
-        var settledResult = null;
-
-        // --- View-specific render functions ---
-        // These update text and visibility within the already-shown view.
-
-        var CONNECT_SECTIONS = ["connect-no-wallet", "connect-success", "connect-wrong", "connect-err", "connect-idle"];
-
-        function renderConnect() {
-          // Chain badge
-          if (request.chainId) {
-            $("connect-chain").textContent = "Chain ID: " + request.chainId;
-            show($("connect-chain"));
-          } else hide($("connect-chain"));
-
-          // Required address (shown unless success or wrong_address)
-          if (request.address && viewStatus !== "success" && viewStatus !== "wrong_address") {
-            $("connect-required-text").textContent = request.address;
-            show($("connect-required"));
-          } else hide($("connect-required"));
-
-          // Hide all sub-sections, then show the right one
-          for (var i = 0; i < CONNECT_SECTIONS.length; i++) hide($(CONNECT_SECTIONS[i]));
-
-          if (!hasWallet()) {
-            show($("connect-no-wallet"));
-          } else if (viewStatus === "success") {
-            $("connect-success-addr").textContent = connectedAddress;
-            show($("connect-success"));
-          } else if (viewStatus === "wrong_address") {
-            $("connect-wrong-expected").textContent = request.address;
-            $("connect-wrong-got").textContent = connectedAddress;
-            show($("connect-wrong"));
-          } else if (viewStatus === "error") {
-            $("connect-err-msg").textContent = viewError;
-            show($("connect-err"));
-          } else {
-            // idle / connecting / switching
-            $("connect-wname").textContent = getWalletName();
-            var icon = getWalletIcon();
-            if (icon) {
-              $("connect-wicon").src = icon;
-              $("connect-wicon").alt = getWalletName();
-              show($("connect-wicon"));
-            } else hide($("connect-wicon"));
-            var btn = $("connect-btn");
-            btn.disabled = viewStatus === "connecting" || viewStatus === "switching";
-            btn.textContent = viewStatus === "connecting"
-              ? "Connecting..."
-              : viewStatus === "switching"
-              ? "Switching Chain..."
-              : "Connect";
-            show($("connect-idle"));
-          }
-        }
-
-        function renderTx() {
-          hide($("tx-success"));
-          hide($("tx-wrong"));
-          hide($("tx-err"));
-          hide($("tx-details"));
-          hide($("tx-no-wallet"));
-          hide($("tx-footer"));
-
-          // Required address (shown unless success or wrong_address)
-          if (request.from && viewStatus !== "success" && viewStatus !== "wrong_address") {
-            $("tx-required-text").textContent = request.from;
-            show($("tx-required"));
-          } else hide($("tx-required"));
-
-          if (viewStatus === "success") {
-            $("tx-hash").textContent = txHash;
-            show($("tx-success"));
-          } else if (viewStatus === "wrong_address") {
-            $("tx-wrong-expected").textContent = request.from;
-            $("tx-wrong-got").textContent = connectedAddress;
-            show($("tx-wrong"));
-            return;
-          } else if (viewStatus === "error") {
-            $("tx-err-msg").textContent = viewError;
-            show($("tx-err"));
-          } else {
-            // Populate detail rows
+          badgeText: function (request) {
+            return request.chainId ? "Chain ID: " + request.chainId : null;
+          },
+          confirmLabel: "Confirm in Wallet...",
+          txHeading: function () {
+            return "Send Transaction";
+          },
+          txButtonLabel: function () {
+            return "Sign & Send";
+          },
+          renderTxDetails: function (request) {
             $("tx-to").textContent = request.to;
             $("tx-value").textContent = formatEther(request.value || "0") + " ETH";
             if (request.data && request.data !== "0x") {
@@ -1094,371 +848,45 @@
               $("tx-gas").textContent = request.gasLimit;
               show($("tx-gas-row"));
             } else hide($("tx-gas-row"));
-            show($("tx-details"));
-          }
-
-          if (!hasWallet()) {
-            show($("tx-no-wallet"));
-          } else if (viewStatus !== "success") {
-            if (connectedAddress) {
-              $("tx-connected").textContent = "Connected: " + truncAddr(connectedAddress);
-              show($("tx-connected"));
-            } else hide($("tx-connected"));
-            var btn = $("tx-btn");
-            btn.disabled = viewStatus === "connecting" || viewStatus === "signing";
-            btn.textContent = viewStatus === "connecting"
-              ? "Connecting..."
-              : viewStatus === "signing"
-              ? "Confirm in Wallet..."
-              : "Sign & Send";
-            show($("tx-footer"));
-          }
-        }
-
-        function renderMsg() {
-          var isTypedData = request.type === "sign_typed_data";
-          $("msg-heading").textContent = isTypedData ? "Sign Typed Data" : "Sign Message";
-
-          hide($("msg-success"));
-          hide($("msg-wrong"));
-          hide($("msg-err"));
-          hide($("msg-content"));
-          hide($("msg-chain"));
-          hide($("msg-no-wallet"));
-          hide($("msg-footer"));
-
-          // Required address (shown unless success or wrong_address)
-          if (request.address && viewStatus !== "success" && viewStatus !== "wrong_address") {
-            $("msg-required-text").textContent = request.address;
-            show($("msg-required"));
-          } else hide($("msg-required"));
-
-          if (viewStatus === "success") {
-            $("msg-sig").textContent = signature;
-            show($("msg-success"));
-          } else if (viewStatus === "wrong_address") {
-            $("msg-wrong-expected").textContent = request.address;
-            $("msg-wrong-got").textContent = connectedAddress;
-            show($("msg-wrong"));
-            return;
-          } else if (viewStatus === "error") {
-            $("msg-err-msg").textContent = viewError;
-            show($("msg-err"));
-          } else {
-            if (isTypedData) {
-              hide($("msg-plain"));
-              $("msg-typed-data").textContent = JSON.stringify(
-                { domain: request.domain, primaryType: request.primaryType, message: request.message },
-                null,
-                2,
-              );
-              show($("msg-typed"));
-            } else {
-              hide($("msg-typed"));
-              $("msg-text").textContent = request.message;
-              show($("msg-plain"));
-            }
-            show($("msg-content"));
-            if (request.chainId) {
-              $("msg-chain").textContent = "Chain ID: " + request.chainId;
-              show($("msg-chain"));
-            }
-          }
-
-          if (!hasWallet()) {
-            show($("msg-no-wallet"));
-          } else if (viewStatus !== "success") {
-            if (connectedAddress) {
-              $("msg-connected").textContent = "Connected: " + truncAddr(connectedAddress);
-              show($("msg-connected"));
-            } else hide($("msg-connected"));
-            var btn = $("msg-btn");
-            btn.disabled = viewStatus === "connecting" || viewStatus === "signing";
-            btn.textContent = viewStatus === "connecting"
-              ? "Connecting..."
-              : viewStatus === "signing"
-              ? "Confirm in Wallet..."
-              : "Sign";
-            show($("msg-footer"));
-          }
-        }
-
-        function render() {
-          if (request === null) return; // still loading or already showing static view
-          if (request.type === "connect") renderConnect();
-          else if (request.type === "send_transaction") renderTx();
-          else if (request.type === "sign_message" || request.type === "sign_typed_data") renderMsg();
-        }
-
-        // --- Connect Handlers ---
-        async function finishConnect(address) {
-          if (request.chainId) {
-            var currentChainId = await getChainId();
-            if (currentChainId !== request.chainId) {
-              viewStatus = "switching";
-              render();
-              await switchChain(request.chainId);
-            }
-          }
-          cleanupAccountsListener();
-          connectedAddress = address;
-          // Settle, then deliver — so a delivery failure here retries the POST, not the connect.
-          settledResult = address;
-          await deliverSettled();
-        }
-
-        function cleanupAccountsListener() {
-          if (unsubAccountsChanged) {
-            unsubAccountsChanged();
-            unsubAccountsChanged = null;
-          }
-        }
-
-        function expectedAddress() {
-          return request.type === "send_transaction" ? request.from : request.address;
-        }
-
-        function wrongAddressMessage() {
-          return "Wrong wallet address: expected " + expectedAddress() + ", got " + connectedAddress;
-        }
-
-        async function rejectWith(defaultReason) {
-          if (viewStatus === "wrong_address") {
-            await completeError(request.id, wrongAddressMessage(), ERROR_CODE_WRONG_WALLET_ADDRESS);
-          } else {
-            await completeError(request.id, defaultReason);
-          }
-        }
-
-        function startListeningForAccountChange() {
-          cleanupAccountsListener();
-          var expected = expectedAddress();
-          if (!expected) return;
-          unsubAccountsChanged = onAccountsChanged(async function (accounts) {
-            if (accounts.length === 0) return;
-            var newAddr = accounts[0];
-            connectedAddress = newAddr;
-            if (!addressMatch(newAddr, expected)) {
-              render();
-              return;
-            }
-            cleanupAccountsListener();
-            if (request.type === "connect") {
-              try {
-                await finishConnect(newAddr);
-              } catch (err) {
-                // In-page error only; the user can retry or Cancel (which propagates).
-                viewError = errMessage(err, "Connection failed");
-                viewStatus = "error";
-                render();
-              }
-            } else if (request.type === "send_transaction") {
-              await app.handleSignTx();
-            } else {
-              await app.handleSignMsg();
-            }
-          });
-        }
-
-        window.app = {
-          handleConnect: async function () {
-            viewStatus = "connecting";
-            viewError = "";
-            render();
-            try {
-              var accounts = await requestAccounts();
-              var address = accounts[0];
-              connectedAddress = address;
-              if (request.address && !addressMatch(address, request.address)) {
-                viewStatus = "wrong_address";
-                render();
-                startListeningForAccountChange();
-                return;
-              }
-              await finishConnect(address);
-            } catch (err) {
-              console.error("[browser-evm-signer] connect error:", err);
-              if (err && err.code !== undefined) console.error("[browser-evm-signer] code:", err.code, "data:", err.data);
-              // Show the error IN-PAGE and stay open so the user can retry (Connect) or abort
-              // (Cancel). We do NOT completeError here — the caller only hears back on an explicit
-              // Cancel, not on a recoverable wallet rejection/error.
-              viewError = errMessage(err, "Connection failed");
-              viewStatus = "error";
-              render();
-            }
           },
 
-          cancelConnect: async function () {
-            cleanupAccountsListener();
-            await rejectWith("User cancelled");
-            window.close();
+          onConnected: async function (request) {
+            await ensureChain(request);
           },
-
-          handleSignTx: async function () {
-            // If the tx was already broadcast, a click only retries DELIVERY — never re-sends.
-            if (settledResult !== null) { await deliverSettled(); return; }
-            viewStatus = "connecting";
-            viewError = "";
-            render();
-            try {
-              var accounts = await getAccounts();
-              if (accounts.length > 0) connectedAddress = accounts[0];
-              else connectedAddress = (await requestAccounts())[0];
-
-              if (request.from && !addressMatch(connectedAddress, request.from)) {
-                viewStatus = "wrong_address";
-                render();
-                startListeningForAccountChange();
-                return;
-              }
-
-              if (request.chainId) {
-                var currentChainId = await getChainId();
-                if (currentChainId !== request.chainId) await switchChain(request.chainId);
-              }
-
-              viewStatus = "signing";
-              render();
-
-              var txParams = { from: request.from || connectedAddress, to: request.to };
-              if (request.value) txParams.value = "0x" + BigInt(request.value).toString(16);
-              if (request.data) txParams.data = request.data;
-              if (request.gasLimit) txParams.gas = "0x" + BigInt(request.gasLimit).toString(16);
-              if (request.maxFeePerGas) txParams.maxFeePerGas = "0x" + BigInt(request.maxFeePerGas).toString(16);
-              if (request.maxPriorityFeePerGas) {
-                txParams.maxPriorityFeePerGas = "0x" + BigInt(request.maxPriorityFeePerGas).toString(16);
-              }
-
-              // Broadcast exactly once; record the hash BEFORE attempting delivery so any
-              // delivery failure can only retry the POST, not re-broadcast.
-              txHash = await walletSendTransaction(txParams);
-              settledResult = txHash;
-              await deliverSettled();
-            } catch (err) {
-              console.error("[browser-evm-signer] transaction error:", err);
-              if (err && err.code !== undefined) console.error("[browser-evm-signer] code:", err.code, "data:", err.data);
-              // In-page error only: keep the page open so the user can retry (Sign & Send) or
-              // abort (Reject). A wallet rejection is NOT propagated to the caller — only the
-              // explicit Reject button is (see rejectTx).
-              viewError = errMessage(err, "Transaction failed");
-              viewStatus = "error";
-              render();
+          sendTx: async function (request, from) {
+            await ensureChain(request);
+            var tx = { from: from, to: request.to };
+            if (request.value) tx.value = "0x" + BigInt(request.value).toString(16);
+            if (request.data) tx.data = request.data;
+            if (request.gasLimit) tx.gas = "0x" + BigInt(request.gasLimit).toString(16);
+            if (request.maxFeePerGas) tx.maxFeePerGas = "0x" + BigInt(request.maxFeePerGas).toString(16);
+            if (request.maxPriorityFeePerGas) {
+              tx.maxPriorityFeePerGas = "0x" + BigInt(request.maxPriorityFeePerGas).toString(16);
             }
+            var hash = await rpc("eth_sendTransaction", [tx]);
+            return { settled: hash, txHash: hash };
           },
-
-          rejectTx: async function () {
-            cleanupAccountsListener();
-            await rejectWith("User rejected transaction");
-            window.close();
+          signMessage: async function (request, address) {
+            await ensureChain(request);
+            var hex = "0x" + Array.from(new TextEncoder().encode(request.message)).map(function (b) {
+              return b.toString(16).padStart(2, "0");
+            }).join("");
+            return rpc("personal_sign", [hex, address]);
           },
-
-          handleSignMsg: async function () {
-            // If already signed, a click only retries DELIVERY — never re-prompts the wallet.
-            if (settledResult !== null) { await deliverSettled(); return; }
-            viewStatus = "connecting";
-            viewError = "";
-            render();
-            try {
-              var accounts = await getAccounts();
-              var address;
-              if (accounts.length > 0) address = accounts[0];
-              else address = (await requestAccounts())[0];
-              connectedAddress = address;
-
-              if (request.address && !addressMatch(address, request.address)) {
-                viewStatus = "wrong_address";
-                render();
-                startListeningForAccountChange();
-                return;
-              }
-
-              if (request.chainId) {
-                var currentChainId = await getChainId();
-                if (currentChainId !== request.chainId) await switchChain(request.chainId);
-              }
-
-              viewStatus = "signing";
-              render();
-
-              var sig;
-              var sigAddress = request.address || address;
-
-              if (
-                request.type === "sign_typed_data" && request.domain && request.types && request.primaryType &&
-                request.message
-              ) {
-                // Only inject a derived EIP712Domain if the caller didn't declare one, so an
-                // explicit declaration (e.g. an unusual field order) is respected.
-                var domainTypes = request.types.EIP712Domain || eip712DomainTypes(request.domain);
-                var typedData = {
-                  types: Object.assign({}, request.types, { EIP712Domain: domainTypes }),
-                  domain: request.domain,
-                  primaryType: request.primaryType,
-                  message: request.message,
-                };
-                sig = await walletSignTypedData(typedData, sigAddress);
-              } else if (request.message) {
-                sig = await walletSignMessage(request.message, sigAddress);
-              } else throw new Error("Invalid signing request");
-
-              signature = sig;
-              settledResult = sig;
-              await deliverSettled();
-            } catch (err) {
-              console.error("[browser-evm-signer] signing error:", err);
-              if (err && err.code !== undefined) console.error("[browser-evm-signer] code:", err.code, "data:", err.data);
-              // In-page error only: keep the page open so the user can retry (Sign) or abort
-              // (Reject). Only the explicit Reject button propagates to the caller (see rejectSign).
-              viewError = errMessage(err, "Signing failed");
-              viewStatus = "error";
-              render();
-            }
+          signTypedData: async function (request, address) {
+            await ensureChain(request);
+            // Only inject a derived EIP712Domain if the caller didn't declare one, so an explicit
+            // declaration (e.g. an unusual field order) is respected.
+            var domainTypes = request.types.EIP712Domain || eip712DomainTypes(request.domain);
+            var typedData = {
+              types: Object.assign({}, request.types, { EIP712Domain: domainTypes }),
+              domain: request.domain,
+              primaryType: request.primaryType,
+              message: request.message,
+            };
+            return rpc("eth_signTypedData_v4", [address, JSON.stringify(typedData)]);
           },
-
-          rejectSign: async function () {
-            cleanupAccountsListener();
-            await rejectWith("User rejected signing");
-            window.close();
-          },
-        };
-
-        // --- Init ---
-        async function init() {
-          discoverWallets();
-
-          var path = window.location.pathname;
-          var match = path.match(/^\/(connect|sign)\/([a-f0-9-]+)$/);
-          if (!match) {
-            showView("view-not-found");
-            return;
-          }
-
-          try {
-            request = await fetchPendingRequest(match[2]);
-            if (request.type === "connect") {
-              showView("view-connect");
-              renderConnect();
-            } else if (request.type === "send_transaction") {
-              showView("view-tx");
-              renderTx();
-            } else if (request.type === "sign_message" || request.type === "sign_typed_data") {
-              showView("view-msg");
-              renderMsg();
-            } else {
-              showView("view-error");
-              $("error-msg").textContent = "Unknown request type";
-            }
-          } catch (err) {
-            var msg = errMessage(err, "Failed to load request");
-            if (msg.includes("not found") || msg.includes("404")) showView("view-not-found");
-            else {
-              $("error-msg").textContent = msg;
-              showView("view-error");
-            }
-          }
-        }
-
-        init();
+        });
       })();
     </script>
   </body>

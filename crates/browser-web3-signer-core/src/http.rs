@@ -5,6 +5,7 @@
 //! - `GET  /api/pending/:id`  → `{ "request": <R> }`
 //! - `POST /api/complete/:id` → resolves the pending request
 //! - `GET  /api/health`       → `{ "status": "ok", "pendingRequests": N }`
+//! - `GET  /app-core.js`      → the shared, chain-agnostic UI engine (both pages `<script src>` it)
 //! - everything else          → the embedded SPA HTML (in-page router handles `/sign/:id` etc.)
 
 use axum::{
@@ -20,6 +21,18 @@ use uuid::Uuid;
 use crate::pending_store::PendingStore;
 use crate::shared::Shared;
 use crate::types::{CompleteApiRequest, PendingApiResponse, Request};
+
+/// The shared, chain-agnostic UI engine, embedded once and served at `/app-core.js`.
+///
+/// Both the EVM and TRON approval pages load it via `<script src="/app-core.js">` and supply only
+/// a thin chain adapter, so the bridge protocol and error contract are defined in exactly one
+/// place.
+///
+/// TODO: author this (and the per-page adapters) in TypeScript for type safety, then either
+/// transpile with a Deno runtime that serves the JS from the `.ts` on the fly, or compile it in a
+/// build step and embed the emitted `.js`. Kept as hand-written JS for now so `include_str!` works
+/// in the Node-less CI build with no extra toolchain.
+pub const APP_CORE_JS: &str = include_str!("../../../web/app-core.js");
 
 /// Shared state for the HTTP handlers.
 pub struct AppState<R: Request> {
@@ -71,6 +84,7 @@ pub fn build_router_with<R: Request>(
         .route("/api/pending/:id", get(get_pending::<R>))
         .route("/api/complete/:id", post(post_complete::<R>))
         .route("/api/health", get(get_health::<R>))
+        .route("/app-core.js", get(serve_app_core))
         .fallback(serve_index::<R>)
         .layer(cors_layer())
         .with_state(state);
@@ -110,6 +124,20 @@ async fn post_complete<R: Request>(
 
 async fn get_health<R: Request>(State(state): State<AppState<R>>) -> Response {
     Json(serde_json::json!({ "status": "ok", "pendingRequests": state.store.len() }))
+        .into_response()
+}
+
+async fn serve_app_core() -> Response {
+    (
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        APP_CORE_JS,
+    )
         .into_response()
 }
 

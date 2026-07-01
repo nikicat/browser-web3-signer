@@ -154,15 +154,29 @@ embedded into the binary with `include_str!` and ported near-verbatim from the r
 the wire contract stays in sync. This is the one part that must remain JavaScript — it runs
 in the wallet's page context.
 
-**TODO (reuse):** the two pages still duplicate ~60% of their logic — the bridge protocol
-(`fetchPendingRequest` / `completeSuccess` / `completeError`), app state + view switching,
-`rejectWith` / address-matching, and the error contract (show in-page + retry, propagate only on
-explicit Reject/Cancel). That duplication has already cost us the same bug fixed twice (the
-"don't `completeError` on a recoverable catch" behaviour landed in `evm.html` long before
-`tron.html`). Extract the shared core into a `web/app-core.js` served via its own `/app-core.js`
-route (same `include_str!` model), leaving each page only a thin chain adapter
-(`{ connect, signMessage, signTypedData, sendTx }`) plus its markup, so the error contract and
-protocol are fixed once for both chains.
+### Shared core + thin chain adapters
+
+The logic the two pages used to duplicate — the bridge protocol (`fetchPendingRequest` /
+`completeSuccess` / `completeError`), the app state machine + view switching, `rejectWith` /
+address-matching, the settled-result delivery, and the **error contract** (show in-page + retry,
+propagate only on explicit Reject/Cancel) — lives once in [`web/app-core.js`](web/app-core.js).
+The core crate embeds it with `include_str!` and serves it at `GET /app-core.js` from
+`build_router` (so every bridge — CLI, `serve`, and the e2e harnesses — exposes it). Both pages
+load it via `<script src="/app-core.js">` and call `WalletSignerCore.init(adapter)`.
+
+Each page is now only its markup + styles plus a thin chain **adapter**: the wallet operations
+(`connect` via `requestAccounts`/`onConnected`, `sendTx`, `signMessage`, `signTypedData`),
+wallet presence/identity, `addressMatch` (case-insensitive for EVM 0x-hex, case-sensitive for
+TRON Base58), and the chain-specific slices of presentation (badge text, `renderTxDetails`,
+button labels). The core owns the flow; the adapter owns the chain. This is what fixed the
+duplicated-bug problem the split was motivated by: the "don't `completeError` on a recoverable
+catch" contract and the settled-result / terminal-delivery handling (which had landed in
+`evm.html` but not `tron.html`) are now defined once and apply to both chains.
+
+This is the one place a small future build step could help: see the `APP_CORE_JS` TODO in
+`crates/browser-web3-signer-core/src/http.rs` for authoring the shared core (and the adapters)
+in TypeScript, transpiled either at serve time via a Deno runtime or in a build step, kept as
+hand-written JS for now so `include_str!` needs no toolchain in the Node-less CI build.
 
 ## Tooling
 
