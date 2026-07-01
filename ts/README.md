@@ -63,4 +63,5 @@ npm test          # integration tests against the real Rust subprocess (build th
 
 The tests drive the real `serve` process but substitute a fake-wallet script for the browser (via
 `--browser`), so they exercise the whole stack — spawn, port discovery, request, result — without
-a real wallet.
+a real wallet. CI runs the typecheck + this suite as a dedicated `ts-binding` job on every push
+and PR.
