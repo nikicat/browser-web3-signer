@@ -87,7 +87,13 @@ require() { command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"; 
 # WALLET_BROWSER (if set) opens approval pages in the chosen browser via the BROWSER env var the
 # signer honors — so you can point different runs at different wallets/browsers.
 signer() {
-  BROWSER="$WALLET_BROWSER" "$BIN" --json "$@"
+  # Only export BROWSER when a browser was actually chosen — an empty BROWSER would make the
+  # launcher try to spawn an empty command rather than fall back to the OS default.
+  if [ -n "$WALLET_BROWSER" ]; then
+    BROWSER="$WALLET_BROWSER" "$BIN" --json "$@"
+  else
+    "$BIN" --json "$@"
+  fi
 }
 
 # Mine one block and wait for a tx's receipt, printing its status ("1 (success)" / "0 (failed)").
