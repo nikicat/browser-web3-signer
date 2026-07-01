@@ -166,7 +166,7 @@ test.describe("Wallet Connection", () => {
     await ctx.close();
   });
 
-  test("surfaces user-rejection from TronLink", async ({ browser }) => {
+  test("shows a TronLink connect rejection in-page and lets the user cancel", async ({ browser }) => {
     const ctx = await walletContext(browser, { rejectConnect: true });
     const page = await ctx.newPage();
 
@@ -174,12 +174,20 @@ test.describe("Wallet Connection", () => {
     await page.goto(`${getBaseUrl()}/connect/${id}`);
 
     await page.getByRole("button", { name: "Connect" }).click();
+    // A wallet-level rejection is shown in-page for retry and is NOT auto-propagated (matches
+    // evm.html); the request stays pending until the user explicitly cancels.
     await expect(page.locator("#connect-err")).toBeVisible({ timeout: 10000 });
     await expect(page.locator("#connect-err-msg")).toContainText("rejected");
+    expect((await getTestResult(id))?.pending).toBe(true);
+
+    // Only the explicit Cancel button completes the request.
+    await patchWindowClose(page);
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await page.waitForTimeout(200);
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
-    expect(result?.error).toContain("rejected");
+    expect(result?.error).toContain("cancel");
 
     await ctx.close();
   });
@@ -236,7 +244,7 @@ test.describe("Send TRX", () => {
     await ctx.close();
   });
 
-  test("surfaces TronLink sign rejection as transaction error", async ({ browser }) => {
+  test("shows a TronLink sign rejection in-page and lets the user reject", async ({ browser }) => {
     const ctx = await walletContext(browser, { rejectSign: true });
     const page = await ctx.newPage();
 
@@ -248,7 +256,14 @@ test.describe("Send TRX", () => {
 
     await page.goto(`${getBaseUrl()}/sign/${id}`);
     await page.getByRole("button", { name: "Sign & Send" }).click();
+    // The sign rejection is shown in-page for retry and is NOT auto-propagated (matches evm.html);
+    // the request stays pending until the user explicitly rejects.
     await expect(page.locator("#tx-err")).toBeVisible({ timeout: 10000 });
+    expect((await getTestResult(id))?.pending).toBe(true);
+
+    await patchWindowClose(page);
+    await page.getByRole("button", { name: "Reject" }).click();
+    await page.waitForTimeout(200);
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
@@ -364,7 +379,7 @@ test.describe("Deploy Contract", () => {
     await ctx.close();
   });
 
-  test("surfaces TronLink sign rejection during deployment", async ({ browser }) => {
+  test("shows a TronLink deploy rejection in-page and lets the user reject", async ({ browser }) => {
     const ctx = await walletContext(browser, { rejectSign: true });
     const page = await ctx.newPage();
 
@@ -377,7 +392,14 @@ test.describe("Deploy Contract", () => {
 
     await page.goto(`${getBaseUrl()}/sign/${id}`);
     await page.getByRole("button", { name: "Deploy" }).click();
+    // The sign rejection is shown in-page for retry and is NOT auto-propagated (matches evm.html);
+    // the request stays pending until the user explicitly rejects.
     await expect(page.locator("#tx-err")).toBeVisible({ timeout: 10000 });
+    expect((await getTestResult(id))?.pending).toBe(true);
+
+    await patchWindowClose(page);
+    await page.getByRole("button", { name: "Reject" }).click();
+    await page.waitForTimeout(200);
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
