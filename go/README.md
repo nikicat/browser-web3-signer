@@ -34,6 +34,10 @@ implemented yet. Building from source (`cargo build`) works as always.
 
 ## Usage
 
+```sh
+go get github.com/nikicat/browser-web3-signer/go@latest   # versioned via go/vX.Y.Z tags
+```
+
 ```go
 import (
 	"context"

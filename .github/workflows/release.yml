@@ -13,9 +13,12 @@
 #              platform-package resolution and the published binary actually work
 #
 # Versioning is lockstep: the npm packages, the Rust binary, and the tag share one version.
-# Cutting a release = bump Cargo.toml + ts/package.json versions on master, then
-# `just release X.Y.Z` (tags and pushes). Re-running a partially failed run is safe: the
-# release upload uses --clobber and npm publishes are skipped when the version exists.
+# Cutting a release = `just release [major|minor|patch|X.Y.Z]` (scripts/release.sh): it bumps
+# the versions on master, waits for CI to pass on the bump commit, then pushes the vX.Y.Z tag
+# (which triggers this workflow) plus the go/vX.Y.Z tag that versions the Go module in go/
+# (subdirectory modules need their own prefixed tag; it cannot match this workflow's tag
+# pattern). Re-running a partially failed run is safe: the release upload uses --clobber and
+# npm publishes are skipped when the version exists.
 #
 # Rehearsal: run via workflow_dispatch with dry_run=true — builds everything and dry-runs
 # npm publish, but creates no release and publishes nothing.
