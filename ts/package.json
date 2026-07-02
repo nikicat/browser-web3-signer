@@ -1,6 +1,6 @@
 {
   "name": "browser-web3-signer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "TypeScript binding (viem transport + account) over the browser-web3-signer control API.",
   "license": "MIT",
