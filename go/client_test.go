@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Integration tests for the Go binding against the real Rust `serve` subprocess.
@@ -24,7 +26,7 @@ const (
 	fakeAddress = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 )
 
-var hexRe = regexp.MustCompile(`^0x[0-9a-fA-F]+$`)
+const hexPattern = `^0x[0-9a-fA-F]+$`
 
 // repoRoot returns the workspace root (one level up from this source file's dir).
 func repoRoot() string {
@@ -43,29 +45,17 @@ func testEnv(t *testing.T) (binPath, fakeWallet string) {
 			break
 		}
 	}
-	if binPath == "" {
-		t.Fatal("browser-web3-signer binary not built; run `cargo build` first")
-	}
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Fatal("node not found on PATH; the fake wallet needs it")
-	}
+	require.NotEmpty(t, binPath, "browser-web3-signer binary not built; run `cargo build` first")
+	_, err := exec.LookPath("node")
+	require.NoError(t, err, "node not found on PATH; the fake wallet needs it")
 	fakeWallet = filepath.Join(root, "ts/test/fake-wallet.mjs")
-	if !fileExists(fakeWallet) {
-		t.Fatalf("fake wallet not found at %s", fakeWallet)
-	}
+	require.True(t, fileExists(fakeWallet), "fake wallet not found at %s", fakeWallet)
 	return binPath, fakeWallet
 }
 
 func fileExists(p string) bool {
 	info, err := os.Stat(p)
 	return err == nil && !info.IsDir()
-}
-
-func assertHex(t *testing.T, label, got string) {
-	t.Helper()
-	if !hexRe.MatchString(got) {
-		t.Fatalf("%s: expected 0x-hex, got %q", label, got)
-	}
 }
 
 func TestEVMClient(t *testing.T) {
@@ -75,22 +65,14 @@ func TestEVMClient(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := client.Start(ctx); err != nil {
-		t.Fatalf("start: %v", err)
-	}
+	require.NoError(t, client.Start(ctx))
 
 	t.Run("Connect", func(t *testing.T) {
 		addr, err := client.Connect(ctx, EVMConnectParams{ChainID: 1})
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err)
 		want, err := ParseAddress(fakeAddress)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if addr != want {
-			t.Fatalf("expected %s, got %s", want, addr)
-		}
+		require.NoError(t, err)
+		assert.Equal(t, want, addr)
 	})
 
 	t.Run("SendTransaction", func(t *testing.T) {
@@ -98,21 +80,15 @@ func TestEVMClient(t *testing.T) {
 			To:    "0x52908400098527886E0F7030069857D2E4169EE7",
 			Value: "1000",
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if hash == (TxHash{}) {
-			t.Fatal("expected a non-zero tx hash")
-		}
-		assertHex(t, "tx hash", hash.String())
+		require.NoError(t, err)
+		assert.NotEqual(t, TxHash{}, hash)
+		assert.Regexp(t, hexPattern, hash.String())
 	})
 
 	t.Run("SignMessage", func(t *testing.T) {
 		sig, err := client.SignMessage(ctx, EVMSignMessageParams{Message: "hello"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertHex(t, "signature", sig.String())
+		require.NoError(t, err)
+		assert.Regexp(t, hexPattern, sig.String())
 	})
 
 	t.Run("SignTypedData", func(t *testing.T) {
@@ -122,10 +98,8 @@ func TestEVMClient(t *testing.T) {
 			PrimaryType: "Message",
 			Message:     map[string]any{"content": "hello"},
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertHex(t, "signature", sig.String())
+		require.NoError(t, err)
+		assert.Regexp(t, hexPattern, sig.String())
 	})
 }
 
@@ -136,21 +110,18 @@ func TestTronClient(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := client.Start(ctx); err != nil {
-		t.Fatalf("start: %v", err)
-	}
+	require.NoError(t, client.Start(ctx))
 
+	// The canned TRON address the fake wallet returns for `connect` and deploy results;
+	// also reused as a well-formed contract address in request params.
 	const contract = "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC"
 
 	t.Run("Connect", func(t *testing.T) {
-		// The fake wallet returns a canned address for `connect` regardless of chain.
 		addr, err := client.Connect(ctx, TronConnectParams{Network: "mainnet"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if addr == "" {
-			t.Fatal("expected a non-empty address")
-		}
+		require.NoError(t, err)
+		want, err := ParseTronAddress(contract)
+		require.NoError(t, err)
+		assert.Equal(t, want, addr)
 	})
 
 	t.Run("SendTransaction", func(t *testing.T) {
@@ -158,10 +129,8 @@ func TestTronClient(t *testing.T) {
 			To:     contract,
 			Amount: "1500000",
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertHex(t, "tx hash", hash)
+		require.NoError(t, err)
+		assert.Regexp(t, hexPattern, hash.String())
 	})
 
 	t.Run("TriggerContract", func(t *testing.T) {
@@ -171,30 +140,25 @@ func TestTronClient(t *testing.T) {
 			Parameters:       []TronParam{{Type: "address", Value: contract}, {Type: "uint256", Value: "1"}},
 			FeeLimit:         "150000000",
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertHex(t, "tx hash", hash)
+		require.NoError(t, err)
+		assert.Regexp(t, hexPattern, hash.String())
 	})
 
 	t.Run("DeployContract", func(t *testing.T) {
-		sig, err := client.DeployContract(ctx, TronDeployContractParams{
+		deployed, err := client.DeployContract(ctx, TronDeployContractParams{
 			ABI:      []byte(`[{"type":"constructor","inputs":[]}]`),
 			Bytecode: "0x6080",
 			FeeLimit: "1500000000",
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertHex(t, "result", sig)
+		require.NoError(t, err)
+		assert.NotEqual(t, TxHash{}, deployed.TxHash)
+		assert.Equal(t, contract, deployed.ContractAddress.String())
 	})
 
 	t.Run("SignMessage", func(t *testing.T) {
 		sig, err := client.SignMessage(ctx, TronSignMessageParams{Message: "hello"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertHex(t, "signature", sig)
+		require.NoError(t, err)
+		assert.Regexp(t, hexPattern, sig.String())
 	})
 
 	t.Run("SignTypedData", func(t *testing.T) {
@@ -204,9 +168,7 @@ func TestTronClient(t *testing.T) {
 			PrimaryType: "Message",
 			Message:     map[string]any{"content": "hello"},
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertHex(t, "signature", sig)
+		require.NoError(t, err)
+		assert.Regexp(t, hexPattern, sig.String())
 	})
 }

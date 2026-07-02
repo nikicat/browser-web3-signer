@@ -64,10 +64,12 @@ func main() {
 respect the passed `context.Context` (cancel/deadline). A rejection surfaces as a `*RequestError`;
 a connected-address mismatch as a `*WrongWalletAddressError` (match with `errors.As`).
 
-Numeric amounts and fees are decimal strings (EVM wei, TRON SUN); EVM chain ids are integers. EVM
-results are domain types — `Connect` returns an `Address`, `SendTransaction` a `TxHash`, and the
-sign methods a `Signature` — parsed and validated as they cross back from the wallet (`String()`
-renders the conventional lowercase 0x-hex). See the [package docs](.) for the full API.
+Numeric amounts and fees are decimal strings (EVM wei, TRON SUN); EVM chain ids are integers.
+Results are domain types — `Connect` returns an `Address` / `TronAddress`, `SendTransaction` and
+`TriggerContract` a `TxHash`, `DeployContract` a `TronDeployResult` (tx hash + deployed contract
+address), and the sign methods a `Signature` — parsed and validated as they cross back from the
+wallet (`String()` renders the conventional form: lowercase 0x-hex, Base58Check for TRON
+addresses). See the [package docs](.) for the full API.
 
 ## Development
 
