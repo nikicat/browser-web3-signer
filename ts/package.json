@@ -2,7 +2,18 @@
   "name": "browser-web3-signer",
   "version": "0.1.1",
   "type": "module",
-  "description": "TypeScript binding (viem transport + account) over the browser-web3-signer control API.",
+  "description": "Sign EVM transactions and messages from TypeScript using your own browser wallet (MetaMask, Rabby) — the private key never leaves the browser. Viem transport + account included.",
+  "keywords": [
+    "web3",
+    "wallet",
+    "signer",
+    "evm",
+    "ethereum",
+    "metamask",
+    "browser-wallet",
+    "viem",
+    "transaction-signing"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
