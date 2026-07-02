@@ -6,7 +6,8 @@ import "context"
 // managed `serve --chain evm` subprocess. Construct one with [NewEVMClient] and reuse it.
 //
 // Numeric amounts and fees are decimal-string wei (e.g. "1000000000000000000"); chain ids
-// are plain integers. Addresses are 0x-hex.
+// are plain integers. Addresses are 0x-hex. Results are domain types ([Address],
+// [TxHash], [Signature]), validated as they cross back from the wallet.
 type EVMClient struct {
 	core
 }
@@ -70,37 +71,53 @@ func (c *core) evmChainID(id int64) int64 {
 }
 
 // Connect connects a wallet and returns the connected address.
-func (c *EVMClient) Connect(ctx context.Context, params EVMConnectParams) (string, error) {
+func (c *EVMClient) Connect(ctx context.Context, params EVMConnectParams) (Address, error) {
 	params.ChainID = c.evmChainID(params.ChainID)
-	return c.request(ctx, struct {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		EVMConnectParams
 	}{Type: "connect", EVMConnectParams: params})
+	if err != nil {
+		return Address{}, err
+	}
+	return parseResult(raw, ParseAddress)
 }
 
 // SendTransaction sends a transaction (or contract call) and returns the tx hash.
-func (c *EVMClient) SendTransaction(ctx context.Context, params EVMSendTxParams) (string, error) {
+func (c *EVMClient) SendTransaction(ctx context.Context, params EVMSendTxParams) (TxHash, error) {
 	params.ChainID = c.evmChainID(params.ChainID)
-	return c.request(ctx, struct {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		EVMSendTxParams
 	}{Type: "send_transaction", EVMSendTxParams: params})
+	if err != nil {
+		return TxHash{}, err
+	}
+	return parseResult(raw, ParseTxHash)
 }
 
 // SignMessage personal_signs a message and returns the signature.
-func (c *EVMClient) SignMessage(ctx context.Context, params EVMSignMessageParams) (string, error) {
+func (c *EVMClient) SignMessage(ctx context.Context, params EVMSignMessageParams) (Signature, error) {
 	params.ChainID = c.evmChainID(params.ChainID)
-	return c.request(ctx, struct {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		EVMSignMessageParams
 	}{Type: "sign_message", EVMSignMessageParams: params})
+	if err != nil {
+		return nil, err
+	}
+	return parseResult(raw, ParseSignature)
 }
 
 // SignTypedData signs EIP-712 typed data and returns the signature.
-func (c *EVMClient) SignTypedData(ctx context.Context, params EVMSignTypedDataParams) (string, error) {
+func (c *EVMClient) SignTypedData(ctx context.Context, params EVMSignTypedDataParams) (Signature, error) {
 	params.ChainID = c.evmChainID(params.ChainID)
-	return c.request(ctx, struct {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		EVMSignTypedDataParams
 	}{Type: "sign_typed_data", EVMSignTypedDataParams: params})
+	if err != nil {
+		return nil, err
+	}
+	return parseResult(raw, ParseSignature)
 }

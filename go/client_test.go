@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 )
@@ -85,8 +84,12 @@ func TestEVMClient(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.EqualFold(addr, fakeAddress) {
-			t.Fatalf("expected %s, got %s", fakeAddress, addr)
+		want, err := ParseAddress(fakeAddress)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if addr != want {
+			t.Fatalf("expected %s, got %s", want, addr)
 		}
 	})
 
@@ -98,7 +101,10 @@ func TestEVMClient(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertHex(t, "tx hash", hash)
+		if hash == (TxHash{}) {
+			t.Fatal("expected a non-zero tx hash")
+		}
+		assertHex(t, "tx hash", hash.String())
 	})
 
 	t.Run("SignMessage", func(t *testing.T) {
@@ -106,7 +112,7 @@ func TestEVMClient(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertHex(t, "signature", sig)
+		assertHex(t, "signature", sig.String())
 	})
 
 	t.Run("SignTypedData", func(t *testing.T) {
@@ -119,7 +125,7 @@ func TestEVMClient(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertHex(t, "signature", sig)
+		assertHex(t, "signature", sig.String())
 	})
 }
 

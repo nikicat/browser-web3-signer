@@ -236,7 +236,8 @@ child you spawned).
   - *Go:* [`go/`](go) — `EVMClient` / `TronClient` spawn and supervise the `serve` subprocess and
     drive it over `/api/v1`. A thin, dependency-free (stdlib-only) client covering both chains
     (connect / send / trigger / deploy / message + typed-data signing); every op takes a
-    `context.Context` and coded errors surface as typed values (`WrongWalletAddressError`). No
+    `context.Context`, coded errors surface as typed values (`WrongWalletAddressError`), and EVM
+    results are domain types (`Address`, `TxHash`, `Signature`) parsed at the boundary. No
     viem-style layer — Go's go-ethereum signing model fits the wallet's `eth_sendTransaction`
     poorly, so the raw client is the whole surface. Tested against the real subprocess, reusing the
     TS binding's fake-wallet stand-in.

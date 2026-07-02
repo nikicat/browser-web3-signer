@@ -12,8 +12,9 @@
 //
 // This is a thin, dependency-free (standard-library-only) client. It mirrors the
 // TypeScript binding in ../ts, with idiomatic Go additions: every operation takes a
-// [context.Context], and coded errors surface as typed values matched with [errors.As]
-// (see [WrongWalletAddressError]).
+// [context.Context], coded errors surface as typed values matched with [errors.As]
+// (see [WrongWalletAddressError]), and EVM results are domain types ([Address],
+// [TxHash], [Signature]) validated as they cross back from the wallet.
 //
 // The `browser-web3-signer` binary must be built (`cargo build`) or on `PATH`; see
 // [ServeOptions] for how it is resolved.
