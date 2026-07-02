@@ -73,14 +73,13 @@ e2e: e2e-build
 go-test: build
     cd go && test -z "$(gofmt -l .)" && go vet ./... && go test ./...
 
-# Cut a release: check the tree is clean and versions are bumped, then tag and push.
-# The Release workflow does the rest (binaries -> GitHub release, npm packages).
-release version:
-    git diff --quiet HEAD || { echo "dirty tree"; exit 1; }
-    grep -q 'version = "{{version}}"' Cargo.toml || { echo "bump [workspace.package] version in Cargo.toml first"; exit 1; }
-    grep -q '"version": "{{version}}"' ts/package.json || { echo "bump ts/package.json version first"; exit 1; }
-    git tag v{{version}}
-    git push origin v{{version}}
+# Cut a release in one command (from a clean master): bump the lockstep version
+# (Cargo.toml + ts/package.json + Cargo.lock), commit + push, wait for CI to pass, then
+# push the vX.Y.Z tag (triggers the Release workflow: binaries -> GitHub release, npm
+# packages) and the go/vX.Y.Z tag (versions the Go module). Level: major|minor|patch or
+# an explicit X.Y.Z.
+release level='minor':
+    ./scripts/release.sh {{level}}
 
 # Manual real-wallet test: drive your browser wallet against a local anvil chain.
 # Requires foundry (anvil/cast/forge) + jq. You approve each step in your wallet.
