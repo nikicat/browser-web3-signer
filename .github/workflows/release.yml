@@ -1,0 +1,236 @@
+# Release pipeline: tag vX.Y.Z -> prebuilt binaries on the GitHub release + npm packages.
+#
+# What it does, in order:
+#   preflight  assert the tag, [workspace.package].version, and ts/package.json agree
+#   build      cargo build --release for 5 targets (all native runners, static musl on linux)
+#   release    upload raw per-target binaries + SHA256SUMS to a GitHub release
+#   npm        publish 5 @nikicat/browser-web3-signer-<platform> packages carrying the
+#              binaries, then the main browser-web3-signer package with them injected as
+#              exact-pinned optionalDependencies (scripts/npm-platform.mjs; the esbuild
+#              pattern — nothing is ever committed by this pipeline)
+#
+# Versioning is lockstep: the npm packages, the Rust binary, and the tag share one version.
+# Cutting a release = bump Cargo.toml + ts/package.json versions on master, then
+# `just release X.Y.Z` (tags and pushes). Re-running a partially failed run is safe: the
+# release upload uses --clobber and npm publishes are skipped when the version exists.
+#
+# Rehearsal: run via workflow_dispatch with dry_run=true — builds everything and dry-runs
+# npm publish, but creates no release and publishes nothing.
+#
+# npm auth — trusted publishing (OIDC), no tokens anywhere:
+#   On npmjs.com, configure this repo + release.yml as a trusted publisher for
+#   browser-web3-signer and each @nikicat/browser-web3-signer-<platform> package. The
+#   workflow then authenticates via the id-token permission and npm generates provenance
+#   attestations automatically. Requires npm >= 11.5.1 (upgraded in the job).
+#
+#   One-time bootstrap: a trusted publisher can only be configured on an EXISTING
+#   package, so the very first publish of the 6 packages happens locally with your own
+#   npm login, from binaries built by a dry-run of this workflow:
+#     gh workflow run release.yml -f tag=v0.1.0 -f dry_run=true   # wait for it
+#     gh run download <run-id> -p 'bin-*' -D dist && mv dist/bin-*/* dist/
+#     node scripts/npm-platform.mjs gen 0.1.0 dist pkgs
+#     for d in pkgs/*/; do npm publish --access public "$d"; done
+#     cd ts && npm ci && node ../scripts/npm-platform.mjs inject 0.1.0 package.json \
+#       && npm publish --access public && git checkout package.json
+#   Then configure the trusted publishers on npmjs.com; every later release is pure CI.
+
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag to simulate (e.g. v0.1.0)'
+        required: true
+      dry_run:
+        description: 'Build and dry-run npm publish; skip release creation and publishing'
+        type: boolean
+        default: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  preflight:
+    name: preflight (version lockstep)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      dry_run: ${{ steps.version.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Determine and cross-check the version
+        id: version
+        run: |
+          TAG='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
+          VERSION="${TAG#v}"
+          CARGO_VERSION=$(sed -n '/^\[workspace\.package\]/,/^\[/p' Cargo.toml \
+            | sed -n 's/^version = "\(.*\)"/\1/p' | head -n1)
+          TS_VERSION=$(jq -r .version ts/package.json)
+          echo "tag=$TAG cargo=$CARGO_VERSION ts=$TS_VERSION"
+          [ "$CARGO_VERSION" = "$VERSION" ] || { echo "::error::Cargo.toml [workspace.package] version $CARGO_VERSION != tag $TAG"; exit 1; }
+          [ "$TS_VERSION" = "$VERSION" ] || { echo "::error::ts/package.json version $TS_VERSION != tag $TAG"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build (${{ matrix.target }})
+    needs: preflight
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+            exe: ''
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            exe: ''
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+            exe: ''
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            exe: ''
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            exe: '.exe'
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # musl-gcc, needed by ring's C sources on the static musl targets.
+      - name: Install musl-tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ matrix.target }}-release-
+
+      - name: Build
+        shell: bash
+        run: |
+          rustup target add ${{ matrix.target }}
+          cargo build --release --locked --bin browser-web3-signer --target ${{ matrix.target }}
+
+      # All runners are native for their target, so the binary is directly executable.
+      - name: Smoke-check the binary version
+        shell: bash
+        run: |
+          BIN='target/${{ matrix.target }}/release/browser-web3-signer${{ matrix.exe }}'
+          OUT="$("$BIN" --version)"
+          echo "$OUT"
+          case "$OUT" in *'${{ needs.preflight.outputs.version }}'*) ;; *)
+            echo "::error::binary reports \"$OUT\", expected ${{ needs.preflight.outputs.version }}"; exit 1;;
+          esac
+
+      - name: Stage release asset
+        shell: bash
+        run: |
+          mkdir staged
+          cp 'target/${{ matrix.target }}/release/browser-web3-signer${{ matrix.exe }}' \
+             'staged/browser-web3-signer-${{ matrix.target }}${{ matrix.exe }}'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: staged/*
+          if-no-files-found: error
+
+  release:
+    name: github release
+    needs: [preflight, build]
+    if: needs.preflight.outputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: cd dist && sha256sum browser-web3-signer-* > SHA256SUMS
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.preflight.outputs.version }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --generate-notes --repo "$GITHUB_REPOSITORY"
+          fi
+
+  npm:
+    name: npm publish
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      DRY_RUN: ${{ needs.preflight.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Trusted publishing needs npm >= 11.5.1; upgrade regardless of what node bundles.
+      - name: Upgrade npm for trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: Generate platform packages
+        run: node scripts/npm-platform.mjs gen "$VERSION" dist pkgs
+
+      # Platform packages go first so the main package's exact pins always resolve.
+      - name: Publish platform packages
+        run: |
+          for dir in pkgs/*/; do
+            NAME=$(jq -r .name "$dir/package.json")
+            if [ "$DRY_RUN" = 'true' ]; then
+              npm publish --dry-run --access public "$dir"
+            elif npm view "$NAME@$VERSION" version > /dev/null 2>&1; then
+              echo "$NAME@$VERSION already published, skipping"
+            else
+              npm publish --access public "$dir"
+            fi
+          done
+
+      - name: Publish the main package
+        working-directory: ts
+        run: |
+          npm ci
+          # Inject after `npm ci` (it would reject a package.json/lockfile mismatch) and
+          # never commit: the platform packages exist on npm, not in the repo.
+          node ../scripts/npm-platform.mjs inject "$VERSION" package.json
+          if [ "$DRY_RUN" = 'true' ]; then
+            npm publish --dry-run --access public
+          elif npm view "browser-web3-signer@$VERSION" version > /dev/null 2>&1; then
+            echo "browser-web3-signer@$VERSION already published, skipping"
+          else
+            npm publish --access public
+          fi

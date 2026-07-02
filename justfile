@@ -73,6 +73,15 @@ e2e: e2e-build
 go-test: build
     cd go && test -z "$(gofmt -l .)" && go vet ./... && go test ./...
 
+# Cut a release: check the tree is clean and versions are bumped, then tag and push.
+# The Release workflow does the rest (binaries -> GitHub release, npm packages).
+release version:
+    git diff --quiet HEAD || { echo "dirty tree"; exit 1; }
+    grep -q 'version = "{{version}}"' Cargo.toml || { echo "bump [workspace.package] version in Cargo.toml first"; exit 1; }
+    grep -q '"version": "{{version}}"' ts/package.json || { echo "bump ts/package.json version first"; exit 1; }
+    git tag v{{version}}
+    git push origin v{{version}}
+
 # Manual real-wallet test: drive your browser wallet against a local anvil chain.
 # Requires foundry (anvil/cast/forge) + jq. You approve each step in your wallet.
 manual-test-evm: build

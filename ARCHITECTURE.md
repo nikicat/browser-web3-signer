@@ -240,6 +240,20 @@ child you spawned).
     viem-style layer — Go's go-ethereum signing model fits the wallet's `eth_sendTransaction`
     poorly, so the raw client is the whole surface. Tested against the real subprocess, reusing the
     TS binding's fake-wallet stand-in.
+- **Phase 4.5 — binary distribution.** ✅ done for TS (see
+  [`.github/workflows/release.yml`](.github/workflows/release.yml)). Tagging `vX.Y.Z` builds the
+  binary for 5 native targets (static musl on linux), uploads raw binaries + `SHA256SUMS` to a
+  GitHub release, and publishes npm packages: five `@nikicat/browser-web3-signer-<platform>`
+  packages carrying the binary, injected into the main `browser-web3-signer` package as
+  exact-pinned `optionalDependencies` at publish time (the esbuild/sass-embedded pattern — chosen
+  over install-script or first-run downloads because the binary rides npm's own machinery:
+  lockfile sha512 integrity, registry mirrors, offline cache, `--ignore-scripts` immunity).
+  Nothing is committed by the pipeline; versions are lockstep (npm == binary == tag).
+  *Go auto-install is deferred*: a Go module is served verbatim from the git tree, so shipping a
+  binary means either committing artifacts or downloading at runtime — the plan, when warranted,
+  is a runtime download verified against a committed per-release SHA-256 table
+  (hc-install-grade; stronger than the unverified downloads of playwright-go/go-rod). Until then
+  Go users build from source, use `BROWSER_WEB3_SIGNER_BIN`, or grab a release binary.
 - **Phase 5 — full multi-client daemon (deferred; build only on demand).** A standalone
   `daemon start|stop|status` with a discovery file (`{port, pid, token}`), bearer-token auth, a
   control API (`POST /api/v1/…`), a request queue serializing human approval, a session cache,
