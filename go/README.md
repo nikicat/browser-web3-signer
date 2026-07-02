@@ -2,8 +2,9 @@
 
 A thin Go client over the Rust `serve` control API. It lets a Go program sign **EVM and TRON**
 transactions and messages with the user's own browser wallet (MetaMask, Rabby, TronLink, …) — the
-private key never leaves the browser. Its only dependency is go-ethereum's `common`/`hexutil`
-packages, so results plug directly into go-ethereum code.
+private key never leaves the browser. It uses go-ethereum's `common`/`hexutil` packages for its
+EVM types, so results plug directly into the go-ethereum code most consumers already have (the
+client is thin by design, but doesn't avoid well-established dependencies on principle).
 
 ## How it works
 
