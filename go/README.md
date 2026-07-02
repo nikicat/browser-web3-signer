@@ -22,10 +22,13 @@ cross-language analog of the reference's in-process server). The subprocess hold
 stable port, so the wallet skips the reconnect prompt across calls. Construct one client and reuse
 it.
 
-This requires the `browser-web3-signer` binary to be built (`cargo build`); the client resolves it
+This requires the `browser-web3-signer` binary to be available; the client resolves it
 from `ClientOptions.BinPath`, then the `BROWSER_WEB3_SIGNER_BIN` env var, then a workspace
 `target/{release,debug}` build (only when running from the repo checkout), then `browser-web3-signer`
-on `PATH`.
+on `PATH`. Prebuilt binaries for linux/macOS/windows are on the
+[GitHub releases page](https://github.com/nikicat/browser-web3-signer/releases) — download one and
+point `BROWSER_WEB3_SIGNER_BIN` at it (or put it on `PATH`); automatic download is planned but not
+implemented yet. Building from source (`cargo build`) works as always.
 
 ## Usage
 

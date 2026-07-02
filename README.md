@@ -25,7 +25,17 @@ exits. Nothing binds a public interface; the bridge is `127.0.0.1` only.
 
 ## Install
 
-Requires a Rust toolchain (pinned to 1.95 via `rust-toolchain.toml`).
+**Prebuilt binaries**: each [GitHub release](https://github.com/nikicat/browser-web3-signer/releases)
+ships static binaries for linux x64/arm64 (musl, runs on any distro), macOS x64/arm64, and
+windows x64, plus a `SHA256SUMS` file. Download `browser-web3-signer-<target>`, verify, `chmod +x`.
+
+**npm** (for the [TypeScript binding](ts), which spawns the binary for you):
+
+```sh
+npm install browser-web3-signer   # pulls the right platform binary as an optionalDependency
+```
+
+**From source** — requires a Rust toolchain (pinned to 1.95 via `rust-toolchain.toml`):
 
 ```sh
 cargo build --release
@@ -91,6 +101,7 @@ drives the wallet over HTTP — see the [TypeScript binding](ts). Honors the glo
 | `BROWSER_WEB3_TRON_PORT` | `3848` | Preferred bridge port for TRON |
 | `BROWSER_WEB3_TRON_NETWORK` | `mainnet` | Default TRON network |
 | `BROWSER` | — | Browser binary to open (else OS default) |
+| `BROWSER_WEB3_SIGNER_BIN` | — | Explicit signer-binary path for the language bindings |
 
 The port is *preferred*, not mandatory: if it's already in use (a concurrent command, or a
 daemon), the command falls back to an OS-assigned ephemeral port instead of failing.
@@ -151,7 +162,9 @@ the bound port to stdout. This is the long-lived mode language bindings spawn an
 **TypeScript binding** ([`ts/`](ts)): a `WalletSignerClient` that spawns and supervises the
 `serve` subprocess and drives it over `/api/v1`, plus a **viem** transport + hybrid account — so a
 TS program signs with the user's browser wallet, and the persistent tab skips the reconnect prompt
-across calls.
+across calls. Published to npm as [`browser-web3-signer`](https://www.npmjs.com/package/browser-web3-signer);
+the Rust binary ships as per-platform `optionalDependencies`, so `npm install` is all it takes —
+no Rust toolchain needed.
 
 **Go binding** ([`go/`](go)): `EVMClient` / `TronClient` — a thin, dependency-free (stdlib-only)
 client that spawns and supervises the `serve` subprocess and drives it over `/api/v1`, covering
