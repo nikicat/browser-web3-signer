@@ -8,6 +8,9 @@
 #              binaries, then the main browser-web3-signer package with them injected as
 #              exact-pinned optionalDependencies (scripts/npm-platform.mjs; the esbuild
 #              pattern — nothing is ever committed by this pipeline)
+#   verify     on every runner OS: `npm install browser-web3-signer@<version>` from the
+#              real registry into a scratch dir and spawn `serve` through it — proves the
+#              platform-package resolution and the published binary actually work
 #
 # Versioning is lockstep: the npm packages, the Rust binary, and the tag share one version.
 # Cutting a release = bump Cargo.toml + ts/package.json versions on master, then
@@ -234,3 +237,55 @@ jobs:
           else
             npm publish --access public
           fi
+
+  verify:
+    name: verify install (${{ matrix.runner }})
+    needs: [preflight, npm]
+    if: needs.preflight.outputs.dry_run != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15-intel
+          - macos-14
+          - windows-latest
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No repo checkout: the scratch project sees only what a real user gets from npm.
+      - name: Install from the registry (with propagation retries)
+        shell: bash
+        run: |
+          mkdir scratch && cd scratch
+          npm init -y > /dev/null
+          npm pkg set type=module
+          for i in $(seq 1 20); do
+            npm install --no-audit --no-fund "browser-web3-signer@$VERSION" && exit 0
+            echo "not yet available, retry $i/20"; sleep 15
+          done
+          echo "::error::browser-web3-signer@$VERSION not installable after 5 minutes"; exit 1
+
+      - name: Spawn serve through the installed package
+        shell: bash
+        working-directory: scratch
+        run: |
+          cat > smoke.js <<'EOF'
+          import { ServeProcess } from "browser-web3-signer";
+          const p = new ServeProcess("evm", { browser: "print" });
+          const baseUrl = await p.start();
+          const health = await (await fetch(`${baseUrl}/api/v1/health`)).json();
+          await p.stop();
+          if (health.status !== "ok") {
+            console.error("health check failed:", health);
+            process.exit(1);
+          }
+          console.log(`OK on ${process.platform}-${process.arch}: installed, spawned, health=${health.status}`);
+          EOF
+          node smoke.js
