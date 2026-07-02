@@ -3,6 +3,9 @@ package signer
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 // TronClient signs TRON transactions and messages with the user's TronLink wallet, over a
@@ -10,7 +13,9 @@ import (
 //
 // Amounts (SUN), fee limits, energy limits, and the fee percentage are all decimal
 // strings on the wire (e.g. Amount "1500000"); addresses are Base58Check. Network is one
-// of "mainnet", "shasta", "nile".
+// of "mainnet", "shasta", "nile". Results are domain types ([TronAddress],
+// [common.Hash], [hexutil.Bytes], [TronDeployResult]), validated as they cross back from
+// the wallet.
 type TronClient struct {
 	core
 }
@@ -88,50 +93,75 @@ type TronSignTypedDataParams struct {
 	Network     string         `json:"network,omitempty"`
 }
 
-// Connect connects a TronLink wallet and returns the connected Base58Check address.
-func (c *TronClient) Connect(ctx context.Context, params TronConnectParams) (string, error) {
-	return c.request(ctx, struct {
+// Connect connects a TronLink wallet and returns the connected address.
+func (c *TronClient) Connect(ctx context.Context, params TronConnectParams) (TronAddress, error) {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		TronConnectParams
 	}{Type: "connect", TronConnectParams: params})
+	if err != nil {
+		return TronAddress{}, err
+	}
+	return parseResult(raw, ParseTronAddress)
 }
 
 // SendTransaction sends a native TRX transfer and returns the tx hash.
-func (c *TronClient) SendTransaction(ctx context.Context, params TronSendTxParams) (string, error) {
-	return c.request(ctx, struct {
+func (c *TronClient) SendTransaction(ctx context.Context, params TronSendTxParams) (common.Hash, error) {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		TronSendTxParams
 	}{Type: "send_transaction", TronSendTxParams: params})
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return parseResult(raw, ParseTxHash)
 }
 
 // TriggerContract calls a smart contract and returns the tx hash.
-func (c *TronClient) TriggerContract(ctx context.Context, params TronTriggerContractParams) (string, error) {
-	return c.request(ctx, struct {
+func (c *TronClient) TriggerContract(ctx context.Context, params TronTriggerContractParams) (common.Hash, error) {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		TronTriggerContractParams
 	}{Type: "trigger_contract", TronTriggerContractParams: params})
+	if err != nil {
+		return common.Hash{}, err
+	}
+	return parseResult(raw, ParseTxHash)
 }
 
-// DeployContract deploys a smart contract and returns the tx hash.
-func (c *TronClient) DeployContract(ctx context.Context, params TronDeployContractParams) (string, error) {
-	return c.request(ctx, struct {
+// DeployContract deploys a smart contract and returns the tx hash and the deployed
+// contract's address.
+func (c *TronClient) DeployContract(ctx context.Context, params TronDeployContractParams) (TronDeployResult, error) {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		TronDeployContractParams
 	}{Type: "deploy_contract", TronDeployContractParams: params})
+	if err != nil {
+		return TronDeployResult{}, err
+	}
+	return parseResult(raw, parseTronDeployResult)
 }
 
 // SignMessage signs a message (TIP-191) and returns the signature.
-func (c *TronClient) SignMessage(ctx context.Context, params TronSignMessageParams) (string, error) {
-	return c.request(ctx, struct {
+func (c *TronClient) SignMessage(ctx context.Context, params TronSignMessageParams) (hexutil.Bytes, error) {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		TronSignMessageParams
 	}{Type: "sign_message", TronSignMessageParams: params})
+	if err != nil {
+		return nil, err
+	}
+	return parseResult(raw, ParseSignature)
 }
 
 // SignTypedData signs TIP-712 typed data and returns the signature.
-func (c *TronClient) SignTypedData(ctx context.Context, params TronSignTypedDataParams) (string, error) {
-	return c.request(ctx, struct {
+func (c *TronClient) SignTypedData(ctx context.Context, params TronSignTypedDataParams) (hexutil.Bytes, error) {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		TronSignTypedDataParams
 	}{Type: "sign_typed_data", TronSignTypedDataParams: params})
+	if err != nil {
+		return nil, err
+	}
+	return parseResult(raw, ParseSignature)
 }

@@ -11,6 +11,7 @@
  */
 
 const FAKE_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+const FAKE_TRON_ADDRESS = "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC";
 const FAKE_TX_HASH = "0x" + "ab".repeat(32);
 const FAKE_SIGNATURE = "0x" + "cd".repeat(65);
 
@@ -24,13 +25,19 @@ const parsed = new URL(url);
 const id = parsed.pathname.split("/").pop();
 const base = `${parsed.protocol}//${parsed.host}`;
 
-function resultFor(type) {
-  switch (type) {
+function resultFor(request) {
+  // TRON requests carry a `network` field (EVM ones a `chainId`); `trigger_contract` /
+  // `deploy_contract` are TRON-only.
+  const isTron = typeof request?.network === "string";
+  switch (request?.type) {
     case "connect":
-      return FAKE_ADDRESS;
+      return isTron ? FAKE_TRON_ADDRESS : FAKE_ADDRESS;
     case "send_transaction":
     case "trigger_contract":
       return FAKE_TX_HASH;
+    case "deploy_contract":
+      // Mirrors the real TRON UI's deploy result shape (see the Rust parse_deploy_result).
+      return JSON.stringify({ txHash: FAKE_TX_HASH, contractAddress: FAKE_TRON_ADDRESS });
     case "sign_message":
     case "sign_typed_data":
       return FAKE_SIGNATURE;
@@ -42,7 +49,7 @@ function resultFor(type) {
 try {
   const pendingRes = await fetch(`${base}/api/pending/${id}`);
   const { request } = await pendingRes.json();
-  const result = resultFor(request?.type);
+  const result = resultFor(request);
   await fetch(`${base}/api/complete/${id}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

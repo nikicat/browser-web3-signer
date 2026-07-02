@@ -29,7 +29,7 @@ crates/
 web/
   evm.html / tron.html        self-contained vanilla-JS approval UIs (embedded via include_str!)
 ts/                           TypeScript binding (viem transport + hybrid account over `serve`)
-go/                           Go binding (stdlib-only client over `serve`)
+go/                           Go binding (go-ethereum-typed client over `serve`)
 ```
 
 Edition 2024, MSRV 1.95.
@@ -234,9 +234,14 @@ child you spawned).
     (`transport.ts`, `viem-account.ts`) ported from the reference. Tested against the real
     subprocess with a fake-wallet stand-in.
   - *Go:* [`go/`](go) — `EVMClient` / `TronClient` spawn and supervise the `serve` subprocess and
-    drive it over `/api/v1`. A thin, dependency-free (stdlib-only) client covering both chains
-    (connect / send / trigger / deploy / message + typed-data signing); every op takes a
-    `context.Context` and coded errors surface as typed values (`WrongWalletAddressError`). No
+    drive it over `/api/v1`. A thin client covering both chains (connect / send / trigger /
+    deploy / message + typed-data signing); every op takes a `context.Context`, coded errors
+    surface as typed values (`WrongWalletAddressError`), and results are domain types parsed at
+    the boundary — go-ethereum's `common.Address` / `common.Hash` / `hexutil.Bytes` plus a custom
+    `TronAddress` (canonical 21 bytes, Base58Check), which has no go-ethereum equivalent. The
+    binding started stdlib-only, but that purity lost to interop: its consumers are almost
+    certainly go-ethereum programs, so well-established dependencies are taken where they fit
+    (go-ethereum for domain types, testify in tests) rather than avoided on principle. No
     viem-style layer — Go's go-ethereum signing model fits the wallet's `eth_sendTransaction`
     poorly, so the raw client is the whole surface. Tested against the real subprocess, reusing the
     TS binding's fake-wallet stand-in.

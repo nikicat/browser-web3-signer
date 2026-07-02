@@ -166,10 +166,11 @@ across calls. Published to npm as [`browser-web3-signer`](https://www.npmjs.com/
 the Rust binary ships as per-platform `optionalDependencies`, so `npm install` is all it takes —
 no Rust toolchain needed.
 
-**Go binding** ([`go/`](go)): `EVMClient` / `TronClient` — a thin, dependency-free (stdlib-only)
-client that spawns and supervises the `serve` subprocess and drives it over `/api/v1`, covering
-**both EVM and TRON**. Every operation takes a `context.Context`; coded errors surface as typed
-values (`WrongWalletAddressError`).
+**Go binding** ([`go/`](go)): `EVMClient` / `TronClient` — a thin client that spawns and
+supervises the `serve` subprocess and drives it over `/api/v1`, covering **both EVM and TRON**.
+Every operation takes a `context.Context`; coded errors surface as typed values
+(`WrongWalletAddressError`); results are go-ethereum types (`common.Address`, `common.Hash`,
+`hexutil.Bytes`) that plug directly into the go-ethereum code most consumers already have.
 
 Persistent sessions in Rust: hold a single `EvmSigner` / `TronSigner` and reuse it — same stable
 port, same effect (the pattern the reference's long-lived `WalletSigner` uses; no daemon required).

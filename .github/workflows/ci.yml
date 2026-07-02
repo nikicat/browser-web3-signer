@@ -113,7 +113,7 @@ jobs:
         run: npm test
 
   go-binding:
-    name: go-binding (stdlib client over the serve subprocess)
+    name: go-binding (Go client over the serve subprocess)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
