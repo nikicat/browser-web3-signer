@@ -10,12 +10,12 @@
 // subprocess holds a stable port for its lifetime, so the wallet skips the reconnect
 // prompt across calls.
 //
-// This is a thin, dependency-free (standard-library-only) client. It mirrors the
-// TypeScript binding in ../ts, with idiomatic Go additions: every operation takes a
-// [context.Context], coded errors surface as typed values matched with [errors.As]
-// (see [WrongWalletAddressError]), and results are domain types ([Address],
-// [TronAddress], [TxHash], [Signature], [TronDeployResult]) validated as they cross
-// back from the wallet.
+// This is a thin client whose only dependency is go-ethereum's `common`/`hexutil`
+// packages, for its EVM primitive types. It mirrors the TypeScript binding in ../ts,
+// with idiomatic Go additions: every operation takes a [context.Context], coded errors
+// surface as typed values matched with [errors.As] (see [WrongWalletAddressError]), and
+// results are domain types ([common.Address], [common.Hash], [hexutil.Bytes],
+// [TronAddress], [TronDeployResult]) validated as they cross back from the wallet.
 //
 // The `browser-web3-signer` binary must be built (`cargo build`) or on `PATH`; see
 // [ServeOptions] for how it is resolved.

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,7 +82,7 @@ func TestEVMClient(t *testing.T) {
 			Value: "1000",
 		})
 		require.NoError(t, err)
-		assert.NotEqual(t, TxHash{}, hash)
+		assert.NotEqual(t, common.Hash{}, hash)
 		assert.Regexp(t, hexPattern, hash.String())
 	})
 
@@ -151,7 +152,7 @@ func TestTronClient(t *testing.T) {
 			FeeLimit: "1500000000",
 		})
 		require.NoError(t, err)
-		assert.NotEqual(t, TxHash{}, deployed.TxHash)
+		assert.NotEqual(t, common.Hash{}, deployed.TxHash)
 		assert.Equal(t, contract, deployed.ContractAddress.String())
 	})
 

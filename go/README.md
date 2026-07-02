@@ -1,8 +1,9 @@
 # browser-web3-signer — Go binding
 
-A thin, dependency-free (standard-library-only) Go client over the Rust `serve` control API. It
-lets a Go program sign **EVM and TRON** transactions and messages with the user's own browser
-wallet (MetaMask, Rabby, TronLink, …) — the private key never leaves the browser.
+A thin Go client over the Rust `serve` control API. It lets a Go program sign **EVM and TRON**
+transactions and messages with the user's own browser wallet (MetaMask, Rabby, TronLink, …) — the
+private key never leaves the browser. Its only dependency is go-ethereum's `common`/`hexutil`
+packages, so results plug directly into go-ethereum code.
 
 ## How it works
 
@@ -65,11 +66,10 @@ respect the passed `context.Context` (cancel/deadline). A rejection surfaces as 
 a connected-address mismatch as a `*WrongWalletAddressError` (match with `errors.As`).
 
 Numeric amounts and fees are decimal strings (EVM wei, TRON SUN); EVM chain ids are integers.
-Results are domain types — `Connect` returns an `Address` / `TronAddress`, `SendTransaction` and
-`TriggerContract` a `TxHash`, `DeployContract` a `TronDeployResult` (tx hash + deployed contract
-address), and the sign methods a `Signature` — parsed and validated as they cross back from the
-wallet (`String()` renders the conventional form: lowercase 0x-hex, Base58Check for TRON
-addresses). See the [package docs](.) for the full API.
+Results are domain types — `Connect` returns a go-ethereum `common.Address` (or a `TronAddress`),
+`SendTransaction` and `TriggerContract` a `common.Hash`, `DeployContract` a `TronDeployResult`
+(tx hash + deployed contract address), and the sign methods a `hexutil.Bytes` signature — parsed
+and validated as they cross back from the wallet. See the [package docs](.) for the full API.
 
 ## Development
 

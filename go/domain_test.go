@@ -9,11 +9,12 @@ import (
 )
 
 func TestParseAddress(t *testing.T) {
+	// The EIP-55 all-caps test vector, so Hex() must render it back verbatim.
 	const checksummed = "0x52908400098527886E0F7030069857D2E4169EE7"
 
 	a, err := ParseAddress(checksummed)
 	require.NoError(t, err)
-	assert.Equal(t, strings.ToLower(checksummed), a.String(), "String() renders lowercase")
+	assert.Equal(t, checksummed, a.Hex(), "Hex() renders the EIP-55 checksummed form")
 
 	bare, err := ParseAddress(strings.TrimPrefix(checksummed, "0x"))
 	require.NoError(t, err)
@@ -33,8 +34,7 @@ func TestParseTxHash(t *testing.T) {
 	b, err := ParseTxHash(hex64)
 	require.NoError(t, err)
 	assert.Equal(t, a, b, "prefixed and bare parses agree")
-	assert.Equal(t, hex64, a.Hex())
-	assert.Equal(t, "0x"+hex64, a.String())
+	assert.Equal(t, "0x"+hex64, a.Hex())
 
 	for _, bad := range []string{"", "0x12", "0x" + hex64 + "ab"} {
 		_, err := ParseTxHash(bad)
@@ -46,7 +46,7 @@ func TestParseSignature(t *testing.T) {
 	s, err := ParseSignature("0xdeadbeef")
 	require.NoError(t, err)
 	assert.Equal(t, "0xdeadbeef", s.String())
-	assert.Equal(t, []byte{0xde, 0xad, 0xbe, 0xef}, s.Bytes())
+	assert.Equal(t, []byte{0xde, 0xad, 0xbe, 0xef}, []byte(s))
 
 	for _, bad := range []string{"", "0x", "0xzz"} {
 		_, err := ParseSignature(bad)

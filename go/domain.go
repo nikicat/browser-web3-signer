@@ -9,73 +9,47 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 // Domain types for wallet-returned values, mirroring the Rust chain layer (`domain.rs` /
 // core `bytes.rs`): the transport returns a raw string, and the typed client parses it
 // into the right domain type immediately, so a value that "is an address" cannot be
-// confused with one that "is a tx hash". Values are stored as raw bytes (not validated
-// strings); parsing accepts hex with or without a `0x` prefix and fails on malformed
-// input at the boundary.
+// confused with one that "is a tx hash". EVM values use go-ethereum's primitives
+// ([common.Address], [common.Hash], [hexutil.Bytes]) — the types callers' go-ethereum
+// code already speaks; TRON addresses have no go-ethereum equivalent and are defined
+// here. Parsing validates at the boundary (go-ethereum's own HexToAddress/HexToHash
+// silently pad and truncate malformed input, so they are never used directly on wallet
+// results) and accepts hex with or without a `0x` prefix.
 
-// Address is a 20-byte EVM address. Parse one with [ParseAddress]; the zero value is the
-// zero address. String renders lowercase `0x…` (EVM tooling compares addresses
-// case-insensitively).
-type Address [20]byte
-
-// ParseAddress parses a 20-byte EVM address from hex (a `0x` prefix is optional; the
-// EIP-55 checksum is not enforced).
-func ParseAddress(s string) (Address, error) {
-	b, err := decodeHex(s, "address")
-	if err != nil {
-		return Address{}, err
+// ParseAddress parses and validates a 20-byte EVM address from hex (a `0x` prefix is
+// optional; the EIP-55 checksum is not enforced). Note [common.Address.Hex] renders the
+// EIP-55 checksummed form.
+func ParseAddress(s string) (common.Address, error) {
+	if !common.IsHexAddress(s) {
+		return common.Address{}, fmt.Errorf("invalid address %q", s)
 	}
-	if len(b) != len(Address{}) {
-		return Address{}, fmt.Errorf("invalid address %q: expected %d bytes, got %d", s, len(Address{}), len(b))
-	}
-	var a Address
-	copy(a[:], b)
-	return a, nil
+	return common.HexToAddress(s), nil
 }
 
-// Bytes returns the raw 20 bytes.
-func (a Address) Bytes() []byte { return a[:] }
-
-// String returns lowercase hex with a `0x` prefix.
-func (a Address) String() string { return "0x" + hex.EncodeToString(a[:]) }
-
-// TxHash is a 32-byte transaction hash (a.k.a. tx id). Parse one with [ParseTxHash].
-type TxHash [32]byte
-
-// ParseTxHash parses a 32-byte transaction hash from hex (a `0x` prefix is optional).
-func ParseTxHash(s string) (TxHash, error) {
+// ParseTxHash parses and validates a 32-byte transaction hash from hex (a `0x` prefix is
+// optional).
+func ParseTxHash(s string) (common.Hash, error) {
 	b, err := decodeHex(s, "tx hash")
 	if err != nil {
-		return TxHash{}, err
+		return common.Hash{}, err
 	}
-	if len(b) != len(TxHash{}) {
-		return TxHash{}, fmt.Errorf("invalid tx hash %q: expected %d bytes, got %d", s, len(TxHash{}), len(b))
+	if len(b) != common.HashLength {
+		return common.Hash{}, fmt.Errorf("invalid tx hash %q: expected %d bytes, got %d", s, common.HashLength, len(b))
 	}
-	var h TxHash
-	copy(h[:], b)
-	return h, nil
+	return common.BytesToHash(b), nil
 }
 
-// Bytes returns the raw 32 bytes.
-func (h TxHash) Bytes() []byte { return h[:] }
-
-// Hex returns lowercase hex without a `0x` prefix (TRON / tronscan convention).
-func (h TxHash) Hex() string { return hex.EncodeToString(h[:]) }
-
-// String returns lowercase hex with a `0x` prefix (EVM / etherscan convention).
-func (h TxHash) String() string { return "0x" + h.Hex() }
-
-// Signature is an ECDSA signature (typically 65 bytes, but stored as variable-length
-// bytes to tolerate wallet variance; never empty). Parse one with [ParseSignature].
-type Signature []byte
-
-// ParseSignature parses a non-empty signature from hex (a `0x` prefix is optional).
-func ParseSignature(s string) (Signature, error) {
+// ParseSignature parses a non-empty ECDSA signature from hex (a `0x` prefix is optional;
+// typically 65 bytes, but variable length to tolerate wallet variance).
+func ParseSignature(s string) (hexutil.Bytes, error) {
 	b, err := decodeHex(s, "signature")
 	if err != nil {
 		return nil, err
@@ -83,14 +57,8 @@ func ParseSignature(s string) (Signature, error) {
 	if len(b) == 0 {
 		return nil, fmt.Errorf("invalid signature %q: empty", s)
 	}
-	return Signature(b), nil
+	return hexutil.Bytes(b), nil
 }
-
-// Bytes returns the raw signature bytes.
-func (s Signature) Bytes() []byte { return s }
-
-// String returns lowercase hex with a `0x` prefix.
-func (s Signature) String() string { return "0x" + hex.EncodeToString(s) }
 
 // TronAddress is a TRON address stored as its canonical 21 bytes: the `0x41` mainnet
 // prefix followed by the 20-byte body. Parse one with [ParseTronAddress] (Base58Check,
@@ -127,7 +95,7 @@ func (a TronAddress) String() string { return base58CheckEncode(a[:]) }
 // TronDeployResult is the typed result of [TronClient.DeployContract]: the broadcast tx
 // hash and the deployed contract's address.
 type TronDeployResult struct {
-	TxHash          TxHash
+	TxHash          common.Hash
 	ContractAddress TronAddress
 }
 
