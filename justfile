@@ -18,9 +18,9 @@ ci: fmt-check toml-check lint build test
 test:
     cargo test --all-features --locked
 
-# Build all targets (matches CI).
-build:
-    cargo build --all-targets --locked
+# Build all targets (matches CI). Use `just build release` for an optimized build.
+build profile='dev':
+    cargo build --all-targets --locked --profile {{profile}}
 
 # Format Rust + TOML in place.
 fmt:
