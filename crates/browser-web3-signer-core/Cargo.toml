@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
 description = "Chain-agnostic engine for browser-based wallet signing: pending-request store, local HTTP bridge, and browser launcher."
 
 [dependencies]
@@ -15,7 +19,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-opener = "0.7"
+opener = "0.8"
 hex = "0.4"
 url = { version = "2", features = ["serde"] }
 

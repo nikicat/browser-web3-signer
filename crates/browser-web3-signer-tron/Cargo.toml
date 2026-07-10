@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
 description = "TRON browser wallet signer: connect / send-TRX / trigger-contract / deploy-contract / sign-message / sign-typed-data via TronLink."
 
 [dependencies]

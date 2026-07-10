@@ -1,27 +1,32 @@
-# Release pipeline: tag vX.Y.Z -> prebuilt binaries on the GitHub release + npm packages.
+# Release pipeline: merging a version-bump PR to master IS the release.
 #
-# What it does, in order:
-#   preflight  assert the tag, [workspace.package].version, and ts/package.json agree
+# Trigger: a push to master that touches Cargo.toml. Preflight reads the
+# [workspace.package] version; if the vX.Y.Z tag already exists (a Cargo.toml
+# change without a bump — dep updates etc.) everything is skipped. Otherwise, in order:
+#   preflight  assert version lockstep (Cargo.toml, internal dep pins, ts/package.json)
 #   build      cargo build --release for 5 targets (all native runners, static musl on linux)
-#   release    upload raw per-target binaries + SHA256SUMS to a GitHub release
+#   release    create the vX.Y.Z GitHub release on the merge commit (this creates the tag)
+#              with raw per-target binaries + SHA256SUMS, and push the go/vX.Y.Z tag that
+#              versions the Go module in go/ (subdirectory modules need their own prefixed tag)
 #   npm        publish 5 @nikicat/browser-web3-signer-<platform> packages carrying the
 #              binaries, then the main browser-web3-signer package with them injected as
 #              exact-pinned optionalDependencies (scripts/npm-platform.mjs; the esbuild
 #              pattern — nothing is ever committed by this pipeline)
+#   crates     publish the 4 workspace crates to crates.io in dependency order
 #   verify     on every runner OS: `npm install browser-web3-signer@<version>` from the
 #              real registry into a scratch dir and spawn `serve` through it — proves the
 #              platform-package resolution and the published binary actually work
 #
-# Versioning is lockstep: the npm packages, the Rust binary, and the tag share one version.
-# Cutting a release = `just release [major|minor|patch|X.Y.Z]` (scripts/release.sh): it bumps
-# the versions on master, waits for CI to pass on the bump commit, then pushes the vX.Y.Z tag
-# (which triggers this workflow) plus the go/vX.Y.Z tag that versions the Go module in go/
-# (subdirectory modules need their own prefixed tag; it cannot match this workflow's tag
-# pattern). Re-running a partially failed run is safe: the release upload uses --clobber and
-# npm publishes are skipped when the version exists.
+# Versioning is lockstep: the npm packages, the crates, the Rust binary, and the tag share
+# one version. Cutting a release = `just release [major|minor|patch|X.Y.Z]`
+# (scripts/release.sh): it opens a PR bumping the versions; CI validates it; merging it
+# triggers this workflow. Everything lives in one workflow because tags created with the
+# default GITHUB_TOKEN deliberately do not trigger other workflows (GitHub's recursion
+# guard). Re-running a partially failed run is safe: the release upload uses --clobber and
+# npm/crates publishes are skipped when the version already exists.
 #
 # Rehearsal: run via workflow_dispatch with dry_run=true — builds everything and dry-runs
-# npm publish, but creates no release and publishes nothing.
+# the npm and crates.io publishes, but creates no release/tags and publishes nothing.
 #
 # npm auth — trusted publishing (OIDC), no tokens anywhere:
 #   On npmjs.com, configure this repo + release.yml as a trusted publisher for
@@ -39,31 +44,45 @@
 #     cd ts && npm ci && node ../scripts/npm-platform.mjs inject 0.1.0 package.json \
 #       && npm publish --access public && git checkout package.json
 #   Then configure the trusted publishers on npmjs.com; every later release is pure CI.
+#
+# crates.io auth — same trusted-publishing story (rust-lang/crates-io-auth-action
+# exchanges the job's OIDC token for a temporary registry token). Same bootstrap: the
+# first publish of the 4 crates happens locally (`cargo publish --workspace`), then
+# configure this repo + release.yml as a trusted publisher for each crate on crates.io.
+# The crates job checks the index before authenticating, so runs where every crate is
+# already published (including the bootstrap release) skip auth entirely.
 
 name: Release
 
 on:
   push:
-    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+    branches: [master]
+    paths: [Cargo.toml]
   workflow_dispatch:
     inputs:
       tag:
         description: 'Version tag to simulate (e.g. v0.1.0)'
         required: true
       dry_run:
-        description: 'Build and dry-run npm publish; skip release creation and publishing'
+        description: 'Build and dry-run the publishes; skip release creation and publishing'
         type: boolean
         default: true
+
+# One release at a time; a queued newer bump waits for the current one.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   preflight:
-    name: preflight (version lockstep)
+    name: preflight (version lockstep + release decision)
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
       dry_run: ${{ steps.version.outputs.dry_run }}
     steps:
       - uses: actions/checkout@v7
@@ -71,20 +90,38 @@ jobs:
       - name: Determine and cross-check the version
         id: version
         run: |
-          TAG='${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}'
-          VERSION="${TAG#v}"
           CARGO_VERSION=$(sed -n '/^\[workspace\.package\]/,/^\[/p' Cargo.toml \
             | sed -n 's/^version = "\(.*\)"/\1/p' | head -n1)
+          if [ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]; then
+            TAG='${{ inputs.tag }}'
+          else
+            TAG="v$CARGO_VERSION"
+          fi
+          VERSION="${TAG#v}"
           TS_VERSION=$(jq -r .version ts/package.json)
           echo "tag=$TAG cargo=$CARGO_VERSION ts=$TS_VERSION"
           [ "$CARGO_VERSION" = "$VERSION" ] || { echo "::error::Cargo.toml [workspace.package] version $CARGO_VERSION != tag $TAG"; exit 1; }
           [ "$TS_VERSION" = "$VERSION" ] || { echo "::error::ts/package.json version $TS_VERSION != tag $TAG"; exit 1; }
+          # The internal path deps carry the version published crates depend on;
+          # release.sh bumps them in lockstep, so a mismatch means a hand-edited bump.
+          if grep -E 'browser-web3-signer-(core|evm|tron) = \{ path' Cargo.toml | grep -vq "version = \"$VERSION\""; then
+            echo "::error::internal dep pins in [workspace.dependencies] are not at $VERSION"; exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "dry_run=${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null 2>&1; then
+            echo "$TAG already exists — Cargo.toml change without a version bump, nothing to release"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
 
   build:
     name: build (${{ matrix.target }})
     needs: preflight
+    if: needs.preflight.outputs.publish == 'true'
     strategy:
       matrix:
         include:
@@ -153,13 +190,17 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: github release
+    name: github release + tags
     needs: [preflight, build]
-    if: needs.preflight.outputs.dry_run != 'true'
+    if: needs.preflight.outputs.publish == 'true' && needs.preflight.outputs.dry_run != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: v${{ needs.preflight.outputs.version }}
     steps:
+      - uses: actions/checkout@v7
+
       - uses: actions/download-artifact@v4
         with:
           pattern: bin-*
@@ -169,20 +210,31 @@ jobs:
       - name: Checksums
         run: cd dist && sha256sum browser-web3-signer-* > SHA256SUMS
 
+      # Creating the release creates the vX.Y.Z tag on the merge commit.
       - name: Create or update the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v${{ needs.preflight.outputs.version }}
         run: |
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" dist/* --title "$TAG" --generate-notes --repo "$GITHUB_REPOSITORY"
+            gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "$TAG" \
+              --generate-notes --repo "$GITHUB_REPOSITORY"
+          fi
+
+      - name: Push the Go module tag
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/go/$TAG" > /dev/null 2>&1; then
+            echo "go/$TAG already exists, skipping"
+          else
+            git tag "go/$TAG" "$GITHUB_SHA"
+            git push origin "go/$TAG"
           fi
 
   npm:
     name: npm publish
     needs: [preflight, build]
+    if: needs.preflight.outputs.publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -240,6 +292,67 @@ jobs:
           else
             npm publish --access public
           fi
+
+  crates:
+    name: crates.io publish
+    needs: [preflight, build]
+    if: needs.preflight.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # crates.io trusted publishing
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: crates-publish-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: crates-publish-
+
+      - name: Dry-run publish
+        if: needs.preflight.outputs.dry_run == 'true'
+        run: cargo publish --workspace --locked --dry-run
+
+      # Check the sparse index before authenticating: re-runs and the trusted-publishing
+      # bootstrap release (published locally) skip auth entirely.
+      - name: Determine which crates need publishing
+        if: needs.preflight.outputs.dry_run != 'true'
+        id: todo
+        run: |
+          todo=""
+          for crate in browser-web3-signer-core browser-web3-signer-evm browser-web3-signer-tron browser-web3-signer; do
+            prefix="${crate:0:2}/${crate:2:2}"
+            if curl -sSf "https://index.crates.io/$prefix/$crate" 2> /dev/null | grep -q "\"vers\":\"$VERSION\""; then
+              echo "$crate@$VERSION already published, skipping"
+            else
+              todo="$todo $crate"
+            fi
+          done
+          echo "todo:$todo"
+          echo "crates=${todo# }" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate with crates.io (OIDC)
+        if: needs.preflight.outputs.dry_run != 'true' && steps.todo.outputs.crates != ''
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      # Dependency order (core -> evm/tron -> cli); cargo waits for each published
+      # crate to appear in the index before the next publish resolves it.
+      - name: Publish
+        if: needs.preflight.outputs.dry_run != 'true' && steps.todo.outputs.crates != ''
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          for crate in ${{ steps.todo.outputs.crates }}; do
+            cargo publish -p "$crate" --locked
+          done
 
   verify:
     name: verify install (${{ matrix.runner }})

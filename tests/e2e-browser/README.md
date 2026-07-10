@@ -3,7 +3,7 @@
 Playwright tests that drive a **mock wallet** against the **real Rust bridge**, exercising the
 full browser interaction for both chains: connect, sign message / typed data, send transaction,
 trigger / deploy contract (TRON), reject, cancel, address-mismatch, and not-found. They pin the
-embedded approval UIs (`web/evm.html`, `web/tron.html`) against the wire contract the Rust engine
+embedded approval UIs (`crates/browser-web3-signer-{evm,tron}/web/*.html`) against the wire contract the Rust engine
 serves.
 
 - **EVM** — `evm/` (13 tests), driven by the `evm-harness` binary + an EIP-6963 / `window.ethereum` mock.

@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
 description = "EVM browser wallet signer: connect / send-transaction / sign-message / sign-typed-data via a browser wallet."
 
 [dependencies]
@@ -13,7 +17,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
-alloy = { version = "1", default-features = false, features = ["std"] }
+alloy = { version = "2", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

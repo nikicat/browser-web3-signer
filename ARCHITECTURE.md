@@ -22,12 +22,10 @@ back. The HTTP bridge binds `127.0.0.1` exclusively.
 
 ```
 crates/
-  browser-web3-signer-core/   chain-agnostic engine (lib)
-  browser-web3-signer-evm/    EVM requests, domain types, embedded UI (lib)
-  browser-web3-signer-tron/   TRON requests, domain types, embedded UI (lib)
+  browser-web3-signer-core/   chain-agnostic engine (lib); web/app-core.js shared UI core
+  browser-web3-signer-evm/    EVM requests, domain types, embedded UI in web/evm.html (lib)
+  browser-web3-signer-tron/   TRON requests, domain types, embedded UI in web/tron.html (lib)
   browser-web3-signer/        the `browser-web3-signer` binary (one-shot CLI)
-web/
-  evm.html / tron.html        self-contained vanilla-JS approval UIs (embedded via include_str!)
 ts/                           TypeScript binding (viem transport + hybrid account over `serve`)
 go/                           Go binding (go-ethereum-typed client over `serve`)
 ```
@@ -149,7 +147,8 @@ parseable.
 
 ## Embedded UI
 
-`web/evm.html` and `web/tron.html` are self-contained vanilla-JS pages (EIP-6963 / injected
+`crates/browser-web3-signer-evm/web/evm.html` and `crates/browser-web3-signer-tron/web/tron.html`
+are self-contained vanilla-JS pages (EIP-6963 / injected
 provider discovery for EVM, TronLink for TRON; no build step, no external requests). They're
 embedded into the binary with `include_str!` and ported near-verbatim from the reference so
 the wire contract stays in sync. This is the one part that must remain JavaScript — it runs
@@ -160,7 +159,8 @@ in the wallet's page context.
 The logic the two pages used to duplicate — the bridge protocol (`fetchPendingRequest` /
 `completeSuccess` / `completeError`), the app state machine + view switching, `rejectWith` /
 address-matching, the settled-result delivery, and the **error contract** (show in-page + retry,
-propagate only on explicit Reject/Cancel) — lives once in [`web/app-core.js`](web/app-core.js).
+propagate only on explicit Reject/Cancel) — lives once in
+[`app-core.js`](crates/browser-web3-signer-core/web/app-core.js), owned by the core crate.
 The core crate embeds it with `include_str!` and serves it at `GET /app-core.js` from
 `build_router` (so every bridge — CLI, `serve`, and the e2e harnesses — exposes it). Both pages
 load it via `<script src="/app-core.js">` and call `WalletSignerCore.init(adapter)`.

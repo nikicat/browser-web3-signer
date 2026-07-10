@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
 description = "CLI for browser-based web3 wallet signing (EVM + TRON): the agent-facing interface that opens a browser to your wallet for approval."
 
 [[bin]]

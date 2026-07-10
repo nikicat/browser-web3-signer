@@ -10,7 +10,7 @@ use crate::types::{EvmRequest, SendTransactionParams, TypedData};
 type Result<T> = std::result::Result<T, SignerError>;
 
 /// The embedded browser approval UI.
-pub const WEB_UI: &str = include_str!("../../../web/evm.html");
+pub const WEB_UI: &str = include_str!("../web/evm.html");
 
 /// Programmatic EVM signer. Owns a single-chain [`Engine`] plus a default chain id used when a
 /// request omits one.
