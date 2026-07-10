@@ -256,9 +256,11 @@ jobs:
           node-version: 24
 
       # Trusted publishing needs npm >= 11.5.1; upgrade regardless of what node bundles.
+      # Pinned to the 11.x line: npm@12.0.0 ships a broken global install (missing
+      # `sigstore` module → provenance generation dies with MODULE_NOT_FOUND).
       - name: Upgrade npm for trusted publishing
         run: |
-          npm install -g npm@latest
+          npm install -g npm@11
           npm --version
 
       - name: Generate platform packages
