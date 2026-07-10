@@ -32,7 +32,7 @@ use crate::types::{CompleteApiRequest, PendingApiResponse, Request};
 /// transpile with a Deno runtime that serves the JS from the `.ts` on the fly, or compile it in a
 /// build step and embed the emitted `.js`. Kept as hand-written JS for now so `include_str!` works
 /// in the Node-less CI build with no extra toolchain.
-pub const APP_CORE_JS: &str = include_str!("../../../web/app-core.js");
+pub const APP_CORE_JS: &str = include_str!("../web/app-core.js");
 
 /// Shared state for the HTTP handlers.
 pub struct AppState<R: Request> {

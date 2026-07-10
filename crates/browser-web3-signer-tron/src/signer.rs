@@ -15,7 +15,7 @@ use crate::types::{
 type Result<T> = std::result::Result<T, SignerError>;
 
 /// The embedded browser approval UI.
-pub const WEB_UI: &str = include_str!("../../../web/tron.html");
+pub const WEB_UI: &str = include_str!("../web/tron.html");
 
 /// Result of a contract deployment.
 #[derive(Debug, Clone)]
