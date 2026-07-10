@@ -2,8 +2,8 @@
 //! `http-server.ts`). Binds `127.0.0.1` only.
 //!
 //! Routes:
-//! - `GET  /api/pending/:id`  → `{ "request": <R> }`
-//! - `POST /api/complete/:id` → resolves the pending request
+//! - `GET  /api/pending/{id}`  → `{ "request": <R> }`
+//! - `POST /api/complete/{id}` → resolves the pending request
 //! - `GET  /api/health`       → `{ "status": "ok", "pendingRequests": N }`
 //! - `GET  /app-core.js`      → the shared, chain-agnostic UI engine (both pages `<script src>` it)
 //! - everything else          → the embedded SPA HTML (in-page router handles `/sign/:id` etc.)
@@ -81,8 +81,8 @@ pub fn build_router_with<R: Request>(
 ) -> Router {
     let state = AppState { store, index_html };
     let core = Router::new()
-        .route("/api/pending/:id", get(get_pending::<R>))
-        .route("/api/complete/:id", post(post_complete::<R>))
+        .route("/api/pending/{id}", get(get_pending::<R>))
+        .route("/api/complete/{id}", post(post_complete::<R>))
         .route("/api/health", get(get_health::<R>))
         .route("/app-core.js", get(serve_app_core))
         .fallback(serve_index::<R>)

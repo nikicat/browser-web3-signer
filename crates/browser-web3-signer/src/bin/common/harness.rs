@@ -25,7 +25,7 @@ use uuid::Uuid;
 struct HarnessState<R: Request> {
     /// The chain bridge engine (owns the store).
     engine: Shared<Engine<R>>,
-    /// Completed outcomes, cached so `/api/test/result/:id` can peek without consuming.
+    /// Completed outcomes, cached so `/api/test/result/{id}` can peek without consuming.
     results: Shared<Mutex<HashMap<Uuid, Value>>>,
 }
 
@@ -78,7 +78,7 @@ async fn create_request<R: Request>(
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
-/// `GET /api/test/result/:id` — peek at a completed outcome, or report pending/unknown.
+/// `GET /api/test/result/{id}` — peek at a completed outcome, or report pending/unknown.
 async fn test_result<R: Request>(
     State(state): State<HarnessState<R>>,
     Path(id): Path<Uuid>,
@@ -96,7 +96,7 @@ async fn test_result<R: Request>(
 fn build_extra_routes<R: Request>(state: HarnessState<R>) -> Router {
     Router::new()
         .route("/api/test/create-request", post(create_request::<R>))
-        .route("/api/test/result/:id", get(test_result::<R>))
+        .route("/api/test/result/{id}", get(test_result::<R>))
         .with_state(state)
 }
 
