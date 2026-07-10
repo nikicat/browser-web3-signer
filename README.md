@@ -29,7 +29,7 @@ Pick your interface:
 | Interface | Install | Details |
 | --- | --- | --- |
 | [CLI](#cli) | prebuilt binary, or `cargo install browser-web3-signer` | below |
-| [Rust](#rust) | `cargo add browser-web3-signer-evm browser-web3-signer-core` | below |
+| [Rust](#rust) | `cargo add browser-web3-signer-evm` | below |
 | [TypeScript](#typescript-npm) | `npm install browser-web3-signer` | [ts/](ts) |
 | [Go](#go) | `go get github.com/nikicat/browser-web3-signer/go@latest` | [go/](go) |
 
@@ -107,15 +107,15 @@ engine: pending-request store, HTTP bridge, browser launcher),
 [`browser-web3-signer-tron`](https://crates.io/crates/browser-web3-signer-tron) (typed signers +
 embedded approval UI per chain), and
 [`browser-web3-signer`](https://crates.io/crates/browser-web3-signer) (the CLI binary).
-Programs depend on the chain crate(s) plus core:
+Programs depend on the chain crate(s); the core types a signer's API surfaces
+(`BrowserChoice`, `BindPort`, `SignerError`, …) are re-exported, and the API is async:
 
 ```sh
-cargo add browser-web3-signer-evm browser-web3-signer-core tokio
+cargo add browser-web3-signer-evm tokio
 ```
 
 ```rust
-use browser_web3_signer_core::BrowserChoice;
-use browser_web3_signer_evm::{EvmSigner, SendTransactionParams};
+use browser_web3_signer_evm::{BrowserChoice, EvmSigner, SendTransactionParams};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

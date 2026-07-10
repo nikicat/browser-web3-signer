@@ -8,6 +8,9 @@ pub mod domain;
 pub mod signer;
 pub mod types;
 
+// Core types that appear in this crate's public API, so depending on
+// `browser-web3-signer-evm` alone is enough to drive a signer.
+pub use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Prepared, SignerError, Url};
 pub use config::{CHAINS, ChainConfig, DEFAULT_CHAIN_ID, chain_config, default_chain_id, port};
 pub use domain::{
     Address, CallData, ChainId, Decimals, Signature, Symbol, TokenAmount, TxHash, Wei,
