@@ -73,11 +73,11 @@ e2e: e2e-build
 go-test: build
     cd go && test -z "$(gofmt -l .)" && go vet ./... && go test ./...
 
-# Cut a release in one command (from a clean master): bump the lockstep version
-# (Cargo.toml + ts/package.json + Cargo.lock), commit + push, wait for CI to pass, then
-# push the vX.Y.Z tag (triggers the Release workflow: binaries -> GitHub release, npm
-# packages) and the go/vX.Y.Z tag (versions the Go module). Level: major|minor|patch or
-# an explicit X.Y.Z.
+# Cut a release (from a clean master): bump the lockstep version (Cargo.toml + internal
+# dep pins + ts/package.json + Cargo.lock) on a release/vX.Y.Z branch and open a PR.
+# Merging that PR is the release: the Release workflow tags the merge commit, uploads
+# binaries to the GitHub release, pushes the go/vX.Y.Z tag, and publishes the npm
+# packages + crates.io crates. Level: major|minor|patch or an explicit X.Y.Z.
 release level='minor':
     ./scripts/release.sh {{level}}
 

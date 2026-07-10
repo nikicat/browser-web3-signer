@@ -12,11 +12,16 @@ version = "0.2.1"
 edition = "2024"
 license = "MIT"
 rust-version = "1.95"
+repository = "https://github.com/nikicat/browser-web3-signer"
+keywords = ["web3", "wallet", "signer", "ethereum", "tron"]
+categories = ["cryptography::cryptocurrencies"]
 
 [workspace.dependencies]
-browser-web3-signer-core = { path = "crates/browser-web3-signer-core" }
-browser-web3-signer-evm = { path = "crates/browser-web3-signer-evm" }
-browser-web3-signer-tron = { path = "crates/browser-web3-signer-tron" }
+# The `version` on these path deps is what published crates depend on; release.sh
+# bumps it in lockstep with [workspace.package] version.
+browser-web3-signer-core = { path = "crates/browser-web3-signer-core", version = "0.2.1" }
+browser-web3-signer-evm = { path = "crates/browser-web3-signer-evm", version = "0.2.1" }
+browser-web3-signer-tron = { path = "crates/browser-web3-signer-tron", version = "0.2.1" }
 
 tokio = { version = "1", features = [
   "rt-multi-thread",
@@ -110,10 +115,9 @@ needless_raw_strings = "warn"
 mixed_read_write_in_expression = "warn"
 filetype_is_file = "warn"
 path_buf_push_overwrite = "warn"
-# Pragmatic allows for a pre-publish, multi-dependency workspace. Documented so
-# each is a deliberate choice, not an oversight:
+# Pragmatic allows for a multi-dependency workspace. Documented so each is a
+# deliberate choice, not an oversight:
 # - duplicate transitive crate versions are unavoidable with alloy/axum/reqwest;
-cargo_common_metadata = "allow"   # keywords/categories/repository added at publish time
 multiple_crate_versions = "allow"
 # - we document errors narratively rather than with per-fn `# Errors` sections;
 missing_errors_doc = "allow"

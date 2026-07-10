@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# Cut a release in one command: `just release [major|minor|patch|X.Y.Z]` (default: minor).
+# Cut a release: `just release [major|minor|patch|X.Y.Z]` (default: minor).
 #
 # From a clean, up-to-date master this bumps the lockstep version (Cargo.toml
-# [workspace.package] + ts/package.json + Cargo.lock), commits and pushes the bump, waits
-# for CI to pass on it, then pushes the two tags:
-#   - vX.Y.Z     → triggers the Release workflow (binaries + npm via OIDC)
-#   - go/vX.Y.Z  → versions the Go module in go/ (subdirectory modules need their own
-#                  prefixed tag; it cannot match the Release workflow's tag pattern)
+# [workspace.package] + the internal dep pins in [workspace.dependencies] +
+# ts/package.json + Cargo.lock) on a release/vX.Y.Z branch, pushes it, and opens a PR.
 #
-# The Release workflow's preflight re-checks the version lockstep, so a mismatch fails
-# loudly before anything is published. DRY_RUN=1 stops before pushing anything.
+# Merging that PR IS the release: the Release workflow (release.yml) sees the version
+# bump land on master, creates the vX.Y.Z GitHub release on the merge commit (binaries +
+# SHA256SUMS), pushes the go/vX.Y.Z tag that versions the Go module, and publishes the
+# npm packages and crates.io crates. DRY_RUN=1 stops before pushing anything.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -36,30 +35,25 @@ else
 fi
 
 echo "releasing $current → $version"
-sed -i "s/^version = \"$current\"/version = \"$version\"/" Cargo.toml
+git checkout -q -b "release/v$version"
+# /g also bumps the `version` on the internal path deps in [workspace.dependencies],
+# which must stay in lockstep for crates.io publishing (preflight enforces this).
+sed -i "s/version = \"$current\"/version = \"$version\"/g" Cargo.toml
 sed -i "s/\"version\": \"$current\"/\"version\": \"$version\"/" ts/package.json
 cargo update --workspace --quiet
 git commit --quiet -am "Bump version to $version"
 
 if [[ "${DRY_RUN:-}" == "1" ]]; then
-    echo "DRY_RUN: stopping before push; bump commit left on master (undo: git reset --hard @{u})"
+    echo "DRY_RUN: stopping before push; bump commit left on release/v$version"
+    echo "(undo: git checkout master && git branch -D release/v$version)"
     exit 0
 fi
 
-git push origin master
-sha=$(git rev-parse HEAD)
+git push -u origin "release/v$version"
+pr_url=$(gh pr create \
+    --title "Bump version to $version" \
+    --body "Merging this PR releases v$version: the Release workflow tags the merge commit, uploads binaries to the GitHub release, and publishes the npm packages and crates.io crates.")
+git checkout -q master
 
-echo "waiting for CI on $sha…"
-run_id=""
-for _ in $(seq 30); do
-    run_id=$(gh run list --commit "$sha" --workflow ci.yml --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
-    [[ -n "$run_id" ]] && break
-    sleep 5
-done
-[[ -n "$run_id" ]] || { echo "CI run for $sha never appeared"; exit 1; }
-gh run watch "$run_id" --exit-status > /dev/null || { echo "CI failed — fix master, then re-run; no tags were pushed"; exit 1; }
-
-git tag "v$version"
-git tag "go/v$version"
-git push origin "v$version" "go/v$version"
-echo "v$version tagged — Release workflow: $(gh run list --workflow release.yml --limit 1 --json url --jq '.[0].url' 2>/dev/null || echo 'gh run list --workflow release.yml')"
+echo "release PR: $pr_url"
+echo "merge it (merge commit, not squash) once CI is green — the merge triggers the release."
