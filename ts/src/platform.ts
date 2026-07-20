@@ -8,7 +8,9 @@
  * and publishes the packages at release time.
  */
 
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 
 /** Platform-package suffix + binary filename per supported (platform, arch) pair. */
 const SUPPORTED: Record<string, string> = {
@@ -49,6 +51,14 @@ export function resolvePlatformBinary(
 ): string | null {
   const target = platformPackage(platform, arch);
   if (!target) return null;
+  // Prefer the consumer's top-level `node_modules` entry over `require.resolve`: resolve()
+  // returns the realpath, which under Deno's node_modules layout lands in the *versioned*
+  // `.deno/<pkg>@<version>` store — a path that changes on every release, so a sandboxed
+  // consumer could never allowlist it statically (`--allow-run` matches the literal spawn path).
+  // The top-level path is version-independent; npm hoists the platform package there, and Deno
+  // creates it when the consumer declares the platform package as a direct dependency.
+  const topLevel = join(process.cwd(), "node_modules", target.pkg, "bin", target.exe);
+  if (existsSync(topLevel)) return topLevel;
   const require = createRequire(import.meta.url);
   try {
     return require.resolve(`${target.pkg}/bin/${target.exe}`);

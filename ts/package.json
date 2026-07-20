@@ -36,6 +36,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "node --test --import tsx ./test/*.test.ts",
+    "test:deno": "deno test --no-check --allow-run --allow-net --allow-read --ignore-env test/deno_smoke_test.ts",
     "prepublishOnly": "npm run typecheck && npm run build"
   },
   "peerDependencies": {

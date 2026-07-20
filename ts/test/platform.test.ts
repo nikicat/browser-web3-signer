@@ -4,6 +4,9 @@
  */
 
 import { strict as assert } from "node:assert";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { platformPackage, resolvePlatformBinary, supportedPlatforms } from "../src/platform.ts";
 
@@ -49,4 +52,27 @@ test("resolvePlatformBinary returns null when the package is not installed", () 
   assert.equal(resolvePlatformBinary("linux", "x64"), null);
   // Unsupported platform short-circuits before require.resolve.
   assert.equal(resolvePlatformBinary("freebsd", "x64"), null);
+});
+
+test("prefers the consumer's top-level node_modules entry over require.resolve", (t) => {
+  const target = platformPackage();
+  if (!target) return t.skip("no platform package for this host");
+
+  // A fake consumer project: the platform package laid out at the top level (as npm hoists it,
+  // and as Deno lays out direct deps). The resolver must return this stable path verbatim — not
+  // a realpath into a versioned store — so sandboxed runtimes can allowlist it statically.
+  // realpath: macOS's tmpdir is a symlink (/var → /private/var) and process.cwd() reports the
+  // resolved path after chdir, which is what the resolver builds the candidate from.
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "bw3s-platform-")));
+  const binDir = join(dir, "node_modules", target.pkg, "bin");
+  mkdirSync(binDir, { recursive: true });
+  writeFileSync(join(binDir, target.exe), "");
+  const prevCwd = process.cwd();
+  process.chdir(dir);
+  t.after(() => {
+    process.chdir(prevCwd);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  assert.equal(resolvePlatformBinary(), join(dir, "node_modules", target.pkg, "bin", target.exe));
 });

@@ -82,8 +82,15 @@ jobs:
         run: npm test
 
   ts-binding:
-    name: ts-binding (viem over the serve subprocess)
-    runs-on: ubuntu-latest
+    name: ts-binding (${{ matrix.runner }}, node + deno)
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-latest # linux x64
+          - macos-15-intel # darwin x64
+          - macos-14 # darwin arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
 
@@ -94,8 +101,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-ts-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-ts-
+          # runner.arch disambiguates the two macOS runners (both runner.os == macOS).
+          key: ${{ runner.os }}-${{ runner.arch }}-ts-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-ts-
 
       - name: Build the signer binary
         run: cargo build --bin browser-web3-signer --locked
@@ -108,9 +116,19 @@ jobs:
         working-directory: ts
         run: npm run typecheck
 
-      - name: Test (against the real serve subprocess)
+      - name: Test under Node (against the real serve subprocess)
         working-directory: ts
         run: npm test
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Restricted-env on purpose: catches any regression to spawning the subprocess with the
+      # permission-filtered environment (see test/deno_smoke_test.ts).
+      - name: Test under Deno (Deno.Command spawn path)
+        working-directory: ts
+        run: npm run test:deno
 
   go-binding:
     name: go-binding (Go client over the serve subprocess)
