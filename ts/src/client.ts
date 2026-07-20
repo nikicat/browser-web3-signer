@@ -22,6 +22,20 @@ export class WrongWalletAddressError extends Error {
   }
 }
 
+/**
+ * Find a {@link WrongWalletAddressError} anywhere in `err`'s `cause` chain, or null.
+ *
+ * Signing stacks wrap transport errors in several layers (viem alone adds two) — use this at the
+ * top level of a CLI or request handler to surface the actionable "switch wallet account" message
+ * instead of the outermost wrapper.
+ */
+export function findWrongWalletAddressError(err: unknown): WrongWalletAddressError | null {
+  for (let e: unknown = err; e instanceof Error; e = e.cause) {
+    if (e instanceof WrongWalletAddressError) return e;
+  }
+  return null;
+}
+
 /** The control API's response envelope (`{success, result}` or `{success:false, error, code?}`). */
 interface RequestResponse {
   success: boolean;
@@ -70,7 +84,7 @@ export interface SignTypedDataParams {
  * `WalletSigner` surface (connect / sendTransaction / signMessage / signTypedData) but talks to
  * the Rust bridge over HTTP instead of owning an in-process server.
  */
-export class WalletSignerClient {
+export class WalletSignerClient implements AsyncDisposable {
   readonly #serve: ServeProcess;
   readonly #defaultChainId?: number;
 
@@ -87,6 +101,11 @@ export class WalletSignerClient {
   /** Kill the subprocess and release the port. */
   async shutdown(): Promise<void> {
     await this.#serve.stop();
+  }
+
+  /** `await using client = new WalletSignerClient(...)` — {@link shutdown} on scope exit. */
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.shutdown();
   }
 
   /** POST a request to the control API and unwrap its result, mapping coded errors to types. */

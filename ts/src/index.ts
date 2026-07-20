@@ -7,6 +7,7 @@
  */
 
 export {
+  findWrongWalletAddressError,
   WalletSignerClient,
   WrongWalletAddressError,
   SignerErrorCode,
