@@ -7,7 +7,7 @@
  * this process exits).
  */
 
-import { execFile, type ChildProcess, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,9 @@ export interface ServeProcessOptions {
    * the `BROWSER_WEB3_SIGNER_BIN` env var, then a workspace debug/release build (only
    * when running from the repo checkout), then the installed
    * `@nikicat/browser-web3-signer-<platform>` package (how the published package ships
-   * the binary), then `browser-web3-signer` on `PATH`.
+   * the binary; the consumer's top-level `node_modules` entry is preferred over the
+   * realpathed store so sandboxed runtimes can allowlist a stable path), then
+   * `browser-web3-signer` on `PATH`.
    */
   binPath?: string;
   /**
@@ -126,9 +128,40 @@ async function warnOnVersionMismatch(binPath: string): Promise<void> {
   }
 }
 
+/** The slice of a spawned child both runtime paths expose: enough for teardown. */
+interface ServeChild {
+  kill(): void;
+}
+
+/** Minimal local typing for the `Deno` global (this package ships no Deno types). Under Deno,
+ *  `node:child_process` substitutes the permission-filtered `process.env` even when `env` is
+ *  omitted — stripping PATH/DISPLAY/… the child needs to launch a browser — so we feature-detect
+ *  `Deno.Command`, which inherits the real environment and *merges* `env` over it. */
+interface DenoNamespaceLike {
+  Command: new (
+    command: string | URL,
+    options: {
+      args: string[];
+      stdin: "null";
+      stdout: "piped";
+      stderr: "inherit";
+      env?: Record<string, string>;
+    },
+  ) => {
+    spawn(): {
+      readonly stdout: ReadableStream<Uint8Array>;
+      readonly status: Promise<{ code: number }>;
+      kill(): void;
+    };
+  };
+}
+
+const denoNs: DenoNamespaceLike | undefined = (globalThis as { Deno?: DenoNamespaceLike }).Deno;
+
 /** A running `serve` subprocess plus the base URL of its control API. */
-export class ServeProcess {
-  #proc: ChildProcess | null = null;
+export class ServeProcess implements AsyncDisposable {
+  #proc: ServeChild | null = null;
+  #starting: Promise<string> | null = null;
   #baseUrl = "";
   readonly #chain: Chain;
   readonly #explicitBin?: string;
@@ -146,10 +179,17 @@ export class ServeProcess {
     return this.#baseUrl;
   }
 
-  /** Spawn the subprocess and resolve once it reports its bound port on stdout. */
-  async start(): Promise<string> {
-    if (this.#proc) return this.#baseUrl;
+  /** Spawn the subprocess and resolve once it reports its bound port on stdout. Concurrent and
+   *  repeat calls share one spawn; a failed spawn clears the slot so the next call retries. */
+  start(): Promise<string> {
+    this.#starting ??= this.#doStart().catch((err) => {
+      this.#starting = null;
+      throw err;
+    });
+    return this.#starting;
+  }
 
+  async #doStart(): Promise<string> {
     if (this.#binPath === null) {
       const resolved = resolveBinary(this.#explicitBin);
       if (resolved.source === "workspace" || resolved.source === "path") {
@@ -162,18 +202,30 @@ export class ServeProcess {
     const args: string[] = [];
     // "print" opens no browser; a specific browser is selected via the BROWSER env var (the
     // signer has no --browser flag — it honors $BROWSER, like xdg-open / the `open` convention).
-    const env = { ...process.env };
+    let browserEnv: string | undefined;
     if (this.#browser === "print") {
       args.push("--print");
     } else if (this.#browser) {
-      env.BROWSER = this.#browser;
+      browserEnv = this.#browser;
     }
     args.push("serve", "--chain", this.#chain);
 
+    const port = denoNs
+      ? await this.#spawnDeno(denoNs, binPath, args, browserEnv)
+      : await this.#spawnNode(binPath, args, browserEnv);
+
+    this.#baseUrl = `http://127.0.0.1:${port}`;
+    return this.#baseUrl;
+  }
+
+  /** Spawn via `node:child_process`. `env` is omitted unless BROWSER must be injected, so the
+   *  child inherits the parent environment untouched. */
+  #spawnNode(binPath: string, args: string[], browserEnv: string | undefined): Promise<number> {
+    const env = browserEnv === undefined ? undefined : { ...process.env, BROWSER: browserEnv };
     const proc = spawn(binPath, args, { stdio: ["ignore", "pipe", "inherit"], env });
     this.#proc = proc;
 
-    const port = await new Promise<number>((resolvePort, reject) => {
+    return new Promise<number>((resolvePort, reject) => {
       let buf = "";
       proc.stdout!.on("data", (data: Buffer) => {
         buf += data.toString("utf-8");
@@ -194,9 +246,57 @@ export class ServeProcess {
         if (code !== null && code !== 0) reject(new Error(`serve exited early with code ${code}`));
       });
     });
+  }
 
-    this.#baseUrl = `http://127.0.0.1:${port}`;
-    return this.#baseUrl;
+  /** Spawn via `Deno.Command`: the child inherits the *real* environment (not the
+   *  permission-filtered view `node:child_process` passes), and `env` merges over it. */
+  async #spawnDeno(
+    deno: DenoNamespaceLike,
+    binPath: string,
+    args: string[],
+    browserEnv: string | undefined,
+  ): Promise<number> {
+    let child: ReturnType<InstanceType<DenoNamespaceLike["Command"]>["spawn"]>;
+    try {
+      child = new deno.Command(binPath, {
+        args,
+        stdin: "null",
+        stdout: "piped",
+        stderr: "inherit",
+        ...(browserEnv === undefined ? {} : { env: { BROWSER: browserEnv } }),
+      }).spawn();
+    } catch (err) {
+      throw new Error(`failed to spawn ${binPath}: ${err instanceof Error ? err.message : err}`);
+    }
+    this.#proc = child;
+
+    const reader = child.stdout.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        const status = await child.status;
+        throw new Error(`serve exited early with code ${status.code}`);
+      }
+      buf += decoder.decode(value, { stream: true });
+      const newline = buf.indexOf("\n");
+      if (newline === -1) continue; // wait for a full line
+      const line = buf.slice(0, newline).trim();
+      if (line.length === 0) {
+        buf = buf.slice(newline + 1);
+        continue;
+      }
+      // Drain any further stdout in the background so the pipe can't fill up.
+      void (async () => {
+        while (!(await reader.read()).done) {
+          // discard
+        }
+      })().catch(() => {});
+      const parsed = Number.parseInt(line, 10);
+      if (Number.isNaN(parsed)) throw new Error(`${binPath} printed a non-numeric port: ${line}`);
+      return parsed;
+    }
   }
 
   /** Kill the subprocess. Idempotent. */
@@ -204,7 +304,13 @@ export class ServeProcess {
     if (this.#proc) {
       this.#proc.kill();
       this.#proc = null;
+      this.#starting = null;
       this.#baseUrl = "";
     }
+  }
+
+  /** `await using serve = new ServeProcess(...)` — {@link stop} on scope exit. */
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.stop();
   }
 }
