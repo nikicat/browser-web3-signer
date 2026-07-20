@@ -1,6 +1,6 @@
 {
   "name": "browser-web3-signer",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "type": "module",
   "description": "Sign EVM transactions and messages from TypeScript using your own browser wallet (MetaMask, Rabby) — the private key never leaves the browser. Viem transport + account included.",
   "keywords": [
