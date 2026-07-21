@@ -465,10 +465,11 @@
               <p>Wrong Address</p>
               <p class="small">Expected: <span id="tx-wrong-expected" class="address"></span></p>
               <p class="small">Connected: <span id="tx-wrong-got" class="address"></span></p>
-              <p class="small">Switch to the correct account in your wallet to continue.</p>
+              <p id="tx-wrong-hint" class="small">Approve the account change in your wallet, or switch manually.</p>
             </div>
             <div class="buttons">
               <button class="btn-secondary" onclick="app.rejectTx()">Reject</button>
+              <button id="tx-change-btn" class="btn-primary btn-primary-amber hidden" onclick="app.changeAccount()">Change Account</button>
             </div>
           </div>
 
@@ -548,10 +549,11 @@
               <p>Wrong Address</p>
               <p class="small">Expected: <span id="msg-wrong-expected" class="address"></span></p>
               <p class="small">Connected: <span id="msg-wrong-got" class="address"></span></p>
-              <p class="small">Switch to the correct account in your wallet to continue.</p>
+              <p id="msg-wrong-hint" class="small">Approve the account change in your wallet, or switch manually.</p>
             </div>
             <div class="buttons">
               <button class="btn-secondary" onclick="app.rejectSign()">Reject</button>
+              <button id="msg-change-btn" class="btn-primary btn-primary-purple hidden" onclick="app.changeAccount()">Change Account</button>
             </div>
           </div>
 
@@ -821,6 +823,40 @@
             return function () {
               provider.removeListener("accountsChanged", handler);
             };
+          },
+          // EVM wallets handle a mismatched `from` themselves: a native switch flow (Ambire) or
+          // a hard reject (MetaMask 4100, Rabby -32602) — never a blind wrong-account signature.
+          walletHandlesMismatch: true,
+          requestAccountChange: async function (expected) {
+            // The user may permit extra accounts without changing the selected one ([0]); any
+            // permitted account can sign, so prefer the one that matches.
+            function pick(accounts) {
+              for (var i = 0; i < accounts.length; i++) {
+                if (String(accounts[i]).toLowerCase() === String(expected).toLowerCase()) return accounts[i];
+              }
+              return accounts.length ? accounts[0] : "";
+            }
+            var before = ((await rpc("eth_accounts")) || [])[0] || "";
+            // EIP-2255: MetaMask opens its account-permission dialog for this even when already
+            // connected. Most other wallets (Ambire, Rabby, Brave, OKX) instead resolve it
+            // silently with the existing permission, in a few milliseconds.
+            var started = Date.now();
+            await rpc("wallet_requestPermissions", [{ eth_accounts: {} }]);
+            var showedDialog = Date.now() - started >= 500;
+            var chosen = pick((await rpc("eth_accounts")) || []);
+            // A changed account is an answer; so is anything that took long enough for a human
+            // to have interacted with a dialog (a silent no-op cannot take half a second, and a
+            // dialog cannot be rendered and answered in under it).
+            if ((chosen && chosen.toLowerCase() !== before.toLowerCase()) || showedDialog) return chosen;
+            // Silent no-op: escalate to MIP-2 revoke + reconnect. With the permission gone the
+            // wallet MUST show its connect window, and that is where accounts get picked.
+            try {
+              await rpc("wallet_revokePermissions", [{ eth_accounts: {} }]);
+            } catch (err) {
+              console.warn("[browser-evm-signer] wallet_revokePermissions unavailable:", err);
+              return null; // no way to make this wallet show an account-change UI
+            }
+            return pick((await rpc("eth_requestAccounts")) || []);
           },
 
           badgeText: function (request) {

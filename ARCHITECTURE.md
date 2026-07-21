@@ -169,7 +169,17 @@ Each page is now only its markup + styles plus a thin chain **adapter**: the wal
 (`connect` via `requestAccounts`/`onConnected`, `sendTx`, `signMessage`, `signTypedData`),
 wallet presence/identity, `addressMatch` (case-insensitive for EVM 0x-hex, case-sensitive for
 TRON Base58), and the chain-specific slices of presentation (badge text, `renderTxDetails`,
-button labels). The core owns the flow; the adapter owns the chain. This is what fixed the
+button labels). When the requested signer differs from the wallet's selected account, the core
+submits the operation for the requested account anyway: wallets with a native switch flow
+(Ambire's "Switch Account Request" window) confirm the change and continue the request in one
+step, while wallets that reject a mismatched request (MetaMask 4100, Rabby -32602) land on the
+wrong-address view, which opens the adapter's optional `requestAccountChange` prompt (EVM:
+EIP-2255 `wallet_requestPermissions` — a real picker on MetaMask — escalating to MIP-2
+`wallet_revokePermissions` + reconnect for the many wallets that resolve it silently from
+existing state). A guarded single-resume path ensures one approval — which can fire both the
+`accountsChanged` event and the prompt's resolution — never signs twice, and a late approval
+after an explicit Reject never signs at all. TRON omits the hook (TronLink has no equivalent)
+and keeps the passive wrong-address view. The core owns the flow; the adapter owns the chain. This is what fixed the
 duplicated-bug problem the split was motivated by: the "don't `completeError` on a recoverable
 catch" contract and the settled-result / terminal-delivery handling (which had landed in
 `evm.html` but not `tron.html`) are now defined once and apply to both chains.
