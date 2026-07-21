@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.4"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.95"
@@ -19,9 +19,9 @@ categories = ["cryptography::cryptocurrencies"]
 [workspace.dependencies]
 # The `version` on these path deps is what published crates depend on; release.sh
 # bumps it in lockstep with [workspace.package] version.
-browser-web3-signer-core = { path = "crates/browser-web3-signer-core", version = "0.2.4" }
-browser-web3-signer-evm = { path = "crates/browser-web3-signer-evm", version = "0.2.4" }
-browser-web3-signer-tron = { path = "crates/browser-web3-signer-tron", version = "0.2.4" }
+browser-web3-signer-core = { path = "crates/browser-web3-signer-core", version = "0.3.0" }
+browser-web3-signer-evm = { path = "crates/browser-web3-signer-evm", version = "0.3.0" }
+browser-web3-signer-tron = { path = "crates/browser-web3-signer-tron", version = "0.3.0" }
 
 tokio = { version = "1", features = [
   "rt-multi-thread",
