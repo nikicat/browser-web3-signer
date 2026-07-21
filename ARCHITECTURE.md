@@ -179,7 +179,8 @@ EIP-2255 `wallet_requestPermissions` — a real picker on MetaMask — escalatin
 existing state). A guarded single-resume path ensures one approval — which can fire both the
 `accountsChanged` event and the prompt's resolution — never signs twice, and a late approval
 after an explicit Reject never signs at all. TRON omits the hook (TronLink has no equivalent)
-and keeps the passive wrong-address view. The core owns the flow; the adapter owns the chain. This is what fixed the
+and keeps the passive wrong-address view. The source-verified per-wallet behaviors this cascade
+is built on are recorded in [docs/wallet-account-change.md](docs/wallet-account-change.md). The core owns the flow; the adapter owns the chain. This is what fixed the
 duplicated-bug problem the split was motivated by: the "don't `completeError` on a recoverable
 catch" contract and the settled-result / terminal-delivery handling (which had landed in
 `evm.html` but not `tron.html`) are now defined once and apply to both chains.
