@@ -6,7 +6,7 @@ trigger / deploy contract (TRON), reject, cancel, address-mismatch, and not-foun
 embedded approval UIs (`crates/browser-web3-signer-{evm,tron}/web/*.html`) against the wire contract the Rust engine
 serves.
 
-- **EVM** — `evm/` (13 tests), driven by the `evm-harness` binary + an EIP-6963 / `window.ethereum` mock.
+- **EVM** — `evm/` (22 tests), driven by the `evm-harness` binary + an EIP-6963 / `window.ethereum` mock.
 - **TRON** — `tron/` (19 tests), driven by the `tron-harness` binary + a TronLink (`window.tronWeb`) mock.
 
 ## How it works

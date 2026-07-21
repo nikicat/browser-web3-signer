@@ -25,6 +25,16 @@
  *   currentAddress(): Promise<string>      // connected address without prompting ("" if none)
  *   requestAccounts(): Promise<string>     // prompt to connect; returns the primary address
  *   onAccountsChanged(cb): () => void      // subscribe; returns an unsubscribe fn (may be a noop)
+ *   requestAccountChange?(expected): Promise<string | null>
+ *                                          // optional: open the wallet's own account-change
+ *                                          // prompt; resolves to the address to resume with
+ *                                          // ("" when nothing changed), or null when the wallet
+ *                                          // offers no working account-change UI at all
+ *   walletHandlesMismatch?: boolean        // optional: the wallet safely handles an operation
+ *                                          // for a non-selected account (native switch flow, or
+ *                                          // a hard reject — true for EVM wallets); when absent
+ *                                          // the core gates mismatched operations in-page
+ *                                          // (TRON: tronWeb would sign an unbroadcastable tx)
  *
  *   badgeText(request): string | null      // connect/msg chain-or-network badge, null to hide
  *   confirmLabel: string                   // button text while the wallet prompt is open
@@ -141,6 +151,15 @@
   var deployedAddress = "";
   var signature = "";
   var unsubAccountsChanged = null;
+  // Account-change prompt state: a prompt is in flight (disables the Change Account button and
+  // suppresses stacked prompts) / the wallet reported the method as unsupported (hides the
+  // button for good).
+  var changingAccount = false;
+  var accountChangeUnsupported = false;
+  // Set on explicit Reject/Cancel. A pending wallet prompt cannot be cancelled, so a late
+  // approval of it must find this flag and NOT resume a request whose error was already
+  // delivered (that would sign/broadcast with nobody listening for the result).
+  var finished = false;
   // Once the wallet returns a result (tx hash / signature / address) it is stored here so a
   // delivery failure (e.g. the bridge went away) NEVER causes a re-sign / re-broadcast. Retrying
   // only re-attempts delivery of this already-settled value.
@@ -198,35 +217,95 @@
     }
   }
 
+  // Resume the pending action after the wallet's account changed — the single resume path,
+  // shared by the accountsChanged listener and the requestAccountChange prompt. One user
+  // approval can fire BOTH (a wallet emits the event and resolves the prompt), so the guard must
+  // be race-free: whichever lands first synchronously moves `viewStatus` off "wrong_address"
+  // before its first await, and the loser bails — the action can never run twice.
+  async function maybeResume(newAddr) {
+    if (!newAddr || finished || viewStatus !== "wrong_address") return;
+    connectedAddress = newAddr;
+    if (!adapter.addressMatch(newAddr, expectedAddress())) {
+      render();
+      return;
+    }
+    viewStatus = "connecting";
+    cleanupAccountsListener();
+    if (request.type === "connect") {
+      try {
+        await finishConnect(newAddr);
+      } catch (err) {
+        viewError = errMessage(err, "Connection failed");
+        viewStatus = "error";
+        render();
+      }
+    } else if (isTxType(request.type)) {
+      await window.app.handleSignTx();
+    } else {
+      await window.app.handleSignMsg();
+    }
+  }
+
   // After a wrong-address state, listen for the wallet switching accounts; when it switches to the
   // expected address, auto-resume the pending action. TRON's adapter returns a noop unsubscribe
   // (TronLink has no equivalent event here), so this simply stays in the wrong-address view.
   function startListeningForAccountChange() {
     cleanupAccountsListener();
-    var expected = expectedAddress();
-    if (!expected) return;
-    unsubAccountsChanged = adapter.onAccountsChanged(async function (newAddr) {
-      if (!newAddr) return;
-      connectedAddress = newAddr;
-      if (!adapter.addressMatch(newAddr, expected)) {
-        render();
-        return;
-      }
-      cleanupAccountsListener();
-      if (request.type === "connect") {
-        try {
-          await finishConnect(newAddr);
-        } catch (err) {
-          viewError = errMessage(err, "Connection failed");
-          viewStatus = "error";
-          render();
-        }
-      } else if (isTxType(request.type)) {
-        await window.app.handleSignTx();
-      } else {
-        await window.app.handleSignMsg();
-      }
+    if (!expectedAddress()) return;
+    unsubAccountsChanged = adapter.onAccountsChanged(function (newAddr) {
+      maybeResume(newAddr);
     });
+  }
+
+  // After a failed operation, decide whether the failure IS the account mismatch: if the
+  // wallet's account still doesn't match the expected one, enter the wrong-address flow instead
+  // of the generic error view. The current address is re-read first because the operation itself
+  // may have moved it — a wallet-native switch flow (Ambire) that was confirmed, followed by the
+  // user rejecting the operation itself, is a plain rejection, not a mismatch.
+  async function enterWrongAddressAfterFailure(err) {
+    var expected = expectedAddress();
+    if (!expected) return false;
+    try {
+      connectedAddress = (await adapter.currentAddress()) || connectedAddress;
+    } catch (_) {}
+    if (adapter.addressMatch(connectedAddress, expected)) return false;
+    viewStatus = "wrong_address";
+    render();
+    startListeningForAccountChange();
+    // 4001 = the user explicitly rejected wallet UI (e.g. denied a native switch-account
+    // window); don't immediately open another prompt at them — the button stays available.
+    if (!(err && err.code === 4001)) promptAccountChange();
+    return true;
+  }
+
+  // Proactively open the wallet's own account-change prompt (when the adapter supports one) so
+  // the user confirms the switch there instead of digging through the wallet UI. Fired without
+  // awaiting from the wrong-address branches; every failure stays IN-PAGE — a rejected or failed
+  // prompt just leaves the wrong-address view and the accountsChanged listener alive (the error
+  // contract: only an explicit Reject/Cancel propagates to the caller).
+  async function promptAccountChange() {
+    if (!adapter.requestAccountChange || accountChangeUnsupported || changingAccount || finished) {
+      return;
+    }
+    changingAccount = true;
+    render();
+    try {
+      var addr = await adapter.requestAccountChange(expectedAddress());
+      if (addr === null) {
+        // The adapter exhausted its options without the wallet ever showing UI — stop offering
+        // the button and fall back to the manual-switch instructions.
+        accountChangeUnsupported = true;
+      } else if (addr) {
+        await maybeResume(addr);
+      }
+    } catch (err) {
+      console.warn("[" + adapter.logTag + "] account-change prompt failed:", err);
+      // EIP-1193 -32601 = the wallet has no such method; stop offering the button.
+      if (err && err.code === -32601) accountChangeUnsupported = true;
+    } finally {
+      changingAccount = false;
+      render();
+    }
   }
 
   async function finishConnect(address) {
@@ -253,6 +332,28 @@
   }
 
   // --- Renderers ---
+  // The Change Account button and the dynamic hint exist only in pages whose adapter implements
+  // requestAccountChange (the TRON page shares this renderer without them), so every element
+  // here is optional.
+  function renderChangeAccountUi(btnId, hintId) {
+    var supported = !!adapter.requestAccountChange && !accountChangeUnsupported;
+    var hint = $(hintId);
+    if (hint) {
+      hint.textContent = supported
+        ? "Approve the account change in your wallet, or switch manually."
+        : "Switch to the correct account in your wallet to continue.";
+    }
+    var btn = $(btnId);
+    if (!btn) return;
+    if (!supported) {
+      hide(btn);
+      return;
+    }
+    btn.disabled = changingAccount;
+    btn.textContent = changingAccount ? "Check Wallet..." : "Change Account";
+    show(btn);
+  }
+
   var CONNECT_SECTIONS = ["connect-no-wallet", "connect-success", "connect-wrong", "connect-err", "connect-idle"];
 
   function renderConnect() {
@@ -328,6 +429,7 @@
     } else if (viewStatus === "wrong_address") {
       $("tx-wrong-expected").textContent = request.from;
       $("tx-wrong-got").textContent = connectedAddress;
+      renderChangeAccountUi("tx-change-btn", "tx-wrong-hint");
       show($("tx-wrong"));
       return;
     } else if (viewStatus === "error") {
@@ -379,6 +481,7 @@
     } else if (viewStatus === "wrong_address") {
       $("msg-wrong-expected").textContent = request.address;
       $("msg-wrong-got").textContent = connectedAddress;
+      renderChangeAccountUi("msg-change-btn", "msg-wrong-hint");
       show($("msg-wrong"));
       return;
     } else if (viewStatus === "error") {
@@ -451,6 +554,7 @@
           viewStatus = "wrong_address";
           render();
           startListeningForAccountChange();
+          promptAccountChange();
           return;
         }
         await finishConnect(address);
@@ -467,6 +571,7 @@
     },
 
     cancelConnect: async function () {
+      finished = true;
       cleanupAccountsListener();
       await rejectWith("User cancelled");
       window.close();
@@ -484,10 +589,17 @@
       try {
         connectedAddress = await acquireAccount();
 
-        if (request.from && !adapter.addressMatch(connectedAddress, request.from)) {
+        // When the wallet handles mismatches itself, the operation is submitted for the
+        // requested `from` ANYWAY: wallets with a native switch flow (Ambire) open their own
+        // switch-account confirmation and continue the request as that account, all in one
+        // step; wallets without one reject immediately (MetaMask 4100, Rabby -32602) and the
+        // catch below turns that into the wrong-address flow. Chains whose wallets do NOT
+        // handle it (TRON) are gated here instead.
+        if (!adapter.walletHandlesMismatch && request.from && !adapter.addressMatch(connectedAddress, request.from)) {
           viewStatus = "wrong_address";
           render();
           startListeningForAccountChange();
+          promptAccountChange();
           return;
         }
 
@@ -504,6 +616,7 @@
       } catch (err) {
         console.error("[" + adapter.logTag + "] transaction error:", err);
         if (err && err.code !== undefined) console.error("[" + adapter.logTag + "] code:", err.code, "data:", err.data);
+        if (await enterWrongAddressAfterFailure(err)) return;
         // In-page error only: keep the page open so the user can retry (Sign & Send) or abort
         // (Reject). A wallet rejection is NOT propagated to the caller — only the explicit Reject
         // button is (see rejectTx).
@@ -514,6 +627,7 @@
     },
 
     rejectTx: async function () {
+      finished = true;
       cleanupAccountsListener();
       await rejectWith("User rejected transaction");
       window.close();
@@ -531,10 +645,14 @@
       try {
         connectedAddress = await acquireAccount();
 
-        if (request.address && !adapter.addressMatch(connectedAddress, request.address)) {
+        // As in handleSignTx: a mismatched request is submitted for the requested address anyway
+        // so wallet-native switch flows can run (a rejection lands in the catch) — unless the
+        // chain's wallets can't handle a mismatch, which is gated here.
+        if (!adapter.walletHandlesMismatch && request.address && !adapter.addressMatch(connectedAddress, request.address)) {
           viewStatus = "wrong_address";
           render();
           startListeningForAccountChange();
+          promptAccountChange();
           return;
         }
 
@@ -555,6 +673,7 @@
       } catch (err) {
         console.error("[" + adapter.logTag + "] signing error:", err);
         if (err && err.code !== undefined) console.error("[" + adapter.logTag + "] code:", err.code, "data:", err.data);
+        if (await enterWrongAddressAfterFailure(err)) return;
         // In-page error only: keep the page open so the user can retry (Sign) or abort (Reject).
         // Only the explicit Reject button propagates to the caller (see rejectSign).
         viewError = errMessage(err, "Signing failed");
@@ -564,9 +683,20 @@
     },
 
     rejectSign: async function () {
+      finished = true;
       cleanupAccountsListener();
       await rejectWith("User rejected signing");
       window.close();
+    },
+
+    changeAccount: function () {
+      // Re-attempting the operation is the most capable "change account" action: wallets with a
+      // native switch flow (Ambire) open their switch-account window from the attempt itself,
+      // and wallets that reject a mismatched request (MetaMask 4100, Rabby -32602) land back in
+      // the wrong-address flow, which opens the adapter's account-change prompt.
+      if (isTxType(request.type)) return window.app.handleSignTx();
+      if (isMsgType(request.type)) return window.app.handleSignMsg();
+      return promptAccountChange();
     },
   };
 
