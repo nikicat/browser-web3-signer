@@ -19,12 +19,7 @@ request and reads the result back.
 *The approval flow, recorded against the E2E mock wallet — with a real wallet the
 extension's own popup appears on top for the final confirmation.*
 
-```
-  CLI command / library call ──► local HTTP bridge (127.0.0.1) ──► opens browser tab
-                        ▲                                   │
-                        │  POST /api/complete/{id}          ▼
-                  result (addr / tx hash / sig) ◄──── you approve in your wallet
-```
+![Flow diagram: a CLI command or library call reaches a local HTTP bridge bound to 127.0.0.1 only, which opens a browser tab where you approve in your wallet; the page POSTs the completion back to the bridge, which returns the result — address, tx hash, or signature — to the caller](docs/how-it-works.svg)
 
 Each request starts (or reuses) a tiny localhost-only HTTP server, opens the browser to
 an approval page, blocks until you act in your wallet (or a 5-minute timeout), and

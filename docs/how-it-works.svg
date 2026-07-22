@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 205" width="840" height="205" role="img" aria-labelledby="t">
+  <title id="t">How browser-web3-signer works: a CLI command or library call goes to a local HTTP bridge bound to 127.0.0.1, which opens a browser tab where you approve in your wallet; the page POSTs the completion back to the bridge, which returns the result (address, tx hash, or signature) to the caller.</title>
+  <defs>
+    <marker id="ai" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#8b7cf6"/>
+    </marker>
+    <marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#8b949e"/>
+    </marker>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="#3fb950"/>
+    </marker>
+  </defs>
+
+  <rect x="1" y="1" width="838" height="203" rx="12" fill="#0d1117" stroke="#30363d"/>
+
+  <!-- nodes -->
+  <g font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <rect x="30" y="40" width="200" height="56" rx="8" fill="#161b22" stroke="#3d444d" stroke-width="1.25"/>
+    <text x="130" y="64" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">CLI command</text>
+    <text x="130" y="83" text-anchor="middle" font-size="12.5" fill="#9198a1">or library call</text>
+
+    <rect x="320" y="40" width="200" height="56" rx="8" fill="#161b22" stroke="#8b7cf6" stroke-width="1.25"/>
+    <text x="420" y="64" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">local HTTP bridge</text>
+    <text x="420" y="83" text-anchor="middle" font-size="12" font-family="SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace" fill="#9198a1">127.0.0.1 only</text>
+
+    <rect x="610" y="40" width="200" height="56" rx="8" fill="#161b22" stroke="#3d444d" stroke-width="1.25"/>
+    <text x="710" y="64" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">browser tab</text>
+    <text x="710" y="83" text-anchor="middle" font-size="12.5" fill="#9198a1">you approve in your wallet</text>
+  </g>
+
+  <!-- forward flow -->
+  <line x1="232" y1="68" x2="312" y2="68" stroke="#8b7cf6" stroke-width="1.75" marker-end="url(#ai)"/>
+  <line x1="522" y1="68" x2="602" y2="68" stroke="#8b7cf6" stroke-width="1.75" marker-end="url(#ai)"/>
+
+  <!-- completion: approval page → bridge -->
+  <path d="M 710 96 L 710 172 L 434 172 L 434 104" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ag)"/>
+  <!-- result: bridge → caller -->
+  <path d="M 406 96 L 406 172 L 130 172 L 130 104" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <g font-family="SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace" font-size="12">
+    <text x="572" y="164" text-anchor="middle" fill="#8b949e">POST /api/complete/{id}</text>
+    <text x="268" y="164" text-anchor="middle" fill="#7ee787">result: addr / tx hash / sig</text>
+  </g>
+</svg>
