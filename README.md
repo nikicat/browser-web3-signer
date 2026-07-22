@@ -14,6 +14,11 @@ request and reads the result back.
 
 ## How it works
 
+![Demo: a CLI request opens an approval page; you connect your wallet, review the transaction, and approve — the terminal gets the result](docs/demo.gif)
+
+*The approval flow, recorded against the E2E mock wallet — with a real wallet the
+extension's own popup appears on top for the final confirmation.*
+
 ```
   CLI command / library call ──► local HTTP bridge (127.0.0.1) ──► opens browser tab
                         ▲                                   │
