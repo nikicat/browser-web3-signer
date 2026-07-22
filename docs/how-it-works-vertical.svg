@@ -10,7 +10,7 @@
 
   <g font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
     <rect x="140" y="36" width="280" height="56" rx="8" fill="#161b22" stroke="#3d444d" stroke-width="1.25"/>
-    <text x="280" y="69" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">CLI/Library</text>
+    <text x="280" y="69" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">CLI <tspan fill="#9198a1" font-weight="400">or</tspan> Library</text>
 
     <rect x="140" y="130" width="280" height="56" rx="8" fill="#161b22" stroke="#8b7cf6" stroke-width="1.25"/>
     <text x="280" y="154" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">HTTP Bridge</text>
@@ -41,6 +41,6 @@
   <g font-family="SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace" font-size="12">
     <text x="482" y="306" fill="#7ee787">signed</text>
     <text x="482" y="210" fill="#8b949e">POST /api/complete/{id}</text>
-    <text x="482" y="116" fill="#7ee787">result: addr / tx hash / sig</text>
+    <text x="482" y="116" fill="#7ee787">result</text>
   </g>
 </svg>
