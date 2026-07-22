@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 205" width="840" height="205" role="img" aria-labelledby="t">
-  <title id="t">How browser-web3-signer works: a CLI command or library call goes to a local HTTP bridge bound to 127.0.0.1, which opens a browser tab where you approve in your wallet; the page POSTs the completion back to the bridge, which returns the result (address, tx hash, or signature) to the caller.</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 285" width="840" height="285" role="img" aria-labelledby="t">
+  <title id="t">How browser-web3-signer works: a CLI command or library call goes to a local HTTP bridge bound to 127.0.0.1, which opens an approval page in a browser tab. The page asks your web3 wallet extension (MetaMask, Rabby, TronLink) to sign; you approve in the wallet, the signed result returns to the page, which POSTs the completion back to the bridge, and the bridge returns the result (address, tx hash, or signature) to the caller.</title>
   <defs>
     <marker id="ai" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
       <path d="M0 0 L8 4 L0 8 z" fill="#8b7cf6"/>
@@ -12,7 +12,7 @@
     </marker>
   </defs>
 
-  <rect x="1" y="1" width="838" height="203" rx="12" fill="#0d1117" stroke="#30363d"/>
+  <rect x="1" y="1" width="838" height="283" rx="12" fill="#0d1117" stroke="#30363d"/>
 
   <!-- nodes -->
   <g font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
@@ -26,20 +26,30 @@
 
     <rect x="610" y="40" width="200" height="56" rx="8" fill="#161b22" stroke="#3d444d" stroke-width="1.25"/>
     <text x="710" y="64" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">browser tab</text>
-    <text x="710" y="83" text-anchor="middle" font-size="12.5" fill="#9198a1">you approve in your wallet</text>
+    <text x="710" y="83" text-anchor="middle" font-size="12.5" fill="#9198a1">approval page</text>
+
+    <rect x="610" y="150" width="200" height="56" rx="8" fill="#161b22" stroke="#e3b341" stroke-width="1.25"/>
+    <text x="710" y="174" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">your web3 wallet</text>
+    <text x="710" y="193" text-anchor="middle" font-size="12.5" fill="#9198a1">MetaMask / Rabby / TronLink</text>
+
+    <text x="596" y="127" text-anchor="end" font-size="12.5" font-style="italic" fill="#e3b341">you approve</text>
   </g>
 
   <!-- forward flow -->
   <line x1="232" y1="68" x2="312" y2="68" stroke="#8b7cf6" stroke-width="1.75" marker-end="url(#ai)"/>
   <line x1="522" y1="68" x2="602" y2="68" stroke="#8b7cf6" stroke-width="1.75" marker-end="url(#ai)"/>
 
+  <!-- approval page ↔ wallet -->
+  <line x1="685" y1="98" x2="685" y2="144" stroke="#8b7cf6" stroke-width="1.5" marker-end="url(#ai)"/>
+  <line x1="735" y1="148" x2="735" y2="102" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ar)"/>
+
   <!-- completion: approval page → bridge -->
-  <path d="M 710 96 L 710 172 L 434 172 L 434 104" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ag)"/>
+  <path d="M 810 82 L 826 82 L 826 246 L 434 246 L 434 104" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ag)"/>
   <!-- result: bridge → caller -->
-  <path d="M 406 96 L 406 172 L 130 172 L 130 104" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ar)"/>
+  <path d="M 406 96 L 406 246 L 130 246 L 130 104" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ar)"/>
 
   <g font-family="SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace" font-size="12">
-    <text x="572" y="164" text-anchor="middle" fill="#8b949e">POST /api/complete/{id}</text>
-    <text x="268" y="164" text-anchor="middle" fill="#7ee787">result: addr / tx hash / sig</text>
+    <text x="630" y="238" text-anchor="middle" fill="#8b949e">POST /api/complete/{id}</text>
+    <text x="268" y="238" text-anchor="middle" fill="#7ee787">result: addr / tx hash / sig</text>
   </g>
 </svg>
