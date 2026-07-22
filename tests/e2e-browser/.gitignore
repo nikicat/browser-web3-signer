@@ -1,1 +1,3 @@
 /test-results/
+# Raw output of record-demo.mts; the curated GIF lives at docs/demo.gif.
+/demo-video/

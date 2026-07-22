@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 200" width="920" height="200" role="img" aria-labelledby="t">
+  <title id="t">How browser-web3-signer works: CLI or library call, local HTTP bridge (127.0.0.1 only), approval page in a browser tab, and your web3 wallet, left to right; the signed approval flows back along a rail below: wallet to page, page POSTs the completion to the bridge, bridge returns the result to the caller.</title>
+  <defs>
+    <marker id="ai" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#8b7cf6"/></marker>
+    <marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#8b949e"/></marker>
+    <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="#3fb950"/></marker>
+  </defs>
+
+  <rect x="1" y="1" width="918" height="198" rx="12" fill="#0d1117" stroke="#30363d"/>
+
+  <g font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <rect x="30" y="40" width="180" height="56" rx="8" fill="#161b22" stroke="#3d444d" stroke-width="1.25"/>
+    <text x="120" y="73" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">CLI <tspan fill="#9198a1" font-weight="400">or</tspan> Library</text>
+
+    <rect x="256" y="40" width="180" height="56" rx="8" fill="#161b22" stroke="#8b7cf6" stroke-width="1.25"/>
+    <text x="346" y="64" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">HTTP Bridge</text>
+    <text x="346" y="83" text-anchor="middle" font-size="12" font-family="SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace" fill="#9198a1">127.0.0.1 only</text>
+
+    <rect x="482" y="40" width="180" height="56" rx="8" fill="#161b22" stroke="#3d444d" stroke-width="1.25"/>
+    <text x="572" y="64" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">Browser</text>
+    <text x="572" y="83" text-anchor="middle" font-size="12.5" fill="#9198a1">approval page</text>
+
+    <rect x="708" y="40" width="180" height="56" rx="8" fill="#161b22" stroke="#e3b341" stroke-width="1.25"/>
+    <text x="798" y="64" text-anchor="middle" font-size="15" font-weight="600" fill="#e6edf3">Web3 Wallet</text>
+    <text x="798" y="83" text-anchor="middle" font-size="12" fill="#9198a1">MetaMask / Rabby / TronLink</text>
+
+    <text x="798" y="28" text-anchor="middle" font-size="12.5" font-style="italic" fill="#e3b341">you approve</text>
+  </g>
+
+  <line x1="212" y1="68" x2="250" y2="68" stroke="#8b7cf6" stroke-width="1.75" marker-end="url(#ai)"/>
+  <line x1="438" y1="68" x2="476" y2="68" stroke="#8b7cf6" stroke-width="1.75" marker-end="url(#ai)"/>
+  <line x1="664" y1="68" x2="702" y2="68" stroke="#8b7cf6" stroke-width="1.75" marker-end="url(#ai)"/>
+
+  <!-- signed: wallet → approval page -->
+  <path d="M 798 96 L 798 170 L 580 170 L 580 104" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ar)"/>
+  <!-- completion: approval page → bridge -->
+  <path d="M 564 96 L 564 170 L 354 170 L 354 104" fill="none" stroke="#8b949e" stroke-width="1.5" marker-end="url(#ag)"/>
+  <!-- result: bridge → caller -->
+  <path d="M 338 96 L 338 170 L 120 170 L 120 104" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <g font-family="SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace" font-size="12">
+    <text x="689" y="162" text-anchor="middle" fill="#7ee787">signed</text>
+    <text x="459" y="162" text-anchor="middle" fill="#8b949e">POST /api/complete/{id}</text>
+    <text x="229" y="162" text-anchor="middle" fill="#7ee787">result</text>
+  </g>
+</svg>
