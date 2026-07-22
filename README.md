@@ -14,12 +14,18 @@ request and reads the result back.
 
 ## How it works
 
-![Demo: a CLI request opens an approval page; you connect your wallet, review the transaction, and approve — the terminal gets the result](docs/demo.gif)
+<p align="center">
+  <img src="docs/demo.gif" alt="Demo: a CLI request opens an approval page; you connect your wallet, review the transaction, and approve — the terminal gets the result">
+</p>
 
-*The approval flow, recorded against the E2E mock wallet — with a real wallet the
-extension's own popup appears on top for the final confirmation.*
+<p align="center">
+  <em>The approval flow, recorded against the E2E mock wallet — with a real wallet the
+  extension's own popup appears on top for the final confirmation.</em>
+</p>
 
-![Flow diagram: a CLI command or library call reaches a local HTTP bridge bound to 127.0.0.1 only, which opens an approval page in a browser tab; the page asks your web3 wallet extension (MetaMask, Rabby, TronLink) to sign and you approve in the wallet; the page then POSTs the completion back to the bridge, which returns the result — address, tx hash, or signature — to the caller](docs/how-it-works.svg)
+<p align="center">
+  <img src="docs/how-it-works.svg" alt="Flow diagram: a CLI command or library call reaches a local HTTP bridge bound to 127.0.0.1 only, which opens an approval page in a browser tab; the page asks your web3 wallet extension (MetaMask, Rabby, TronLink) to sign and you approve in the wallet; the page then POSTs the completion back to the bridge, which returns the result — address, tx hash, or signature — to the caller">
+</p>
 
 Each request starts (or reuses) a tiny localhost-only HTTP server, opens the browser to
 an approval page, blocks until you act in your wallet (or a 5-minute timeout), and
