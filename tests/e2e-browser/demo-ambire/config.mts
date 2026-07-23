@@ -10,6 +10,14 @@ if (!process.env.DISPLAY) {
   throw new Error("no DISPLAY — run under xvfb-run so windows stay off the desktop");
 }
 
+// Isolate D-Bus too: without this, Chromium reaches the desktop session bus
+// (via DBUS_SESSION_BUS_ADDRESS or the $XDG_RUNTIME_DIR/bus fallback) and
+// spams real desktop notifications. Point XDG_RUNTIME_DIR at a private dir.
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+delete process.env.DBUS_SESSION_BUS_ADDRESS;
+process.env.XDG_RUNTIME_DIR = mkdtempSync(join(tmpdir(), "ambire-runtime-"));
+
 export const AMBIRE_VERSION = "v6.15.3";
 export const BUILD_DIR = join(import.meta.dirname, "ambire-build");
 export const FIXTURE = join(import.meta.dirname, "ambire-storage.json.gz");
