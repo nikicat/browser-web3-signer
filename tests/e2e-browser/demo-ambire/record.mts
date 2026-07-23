@@ -1,0 +1,142 @@
+/**
+ * Records the demo video: terminal (left, real CLI typed via tmux into a
+ * neutral-prompt shell) + Chromium with real Ambire (right), captured from the
+ * Xvfb display by ffmpeg. The scene is send-transaction only; a warm-up
+ * sign-message runs off-camera first so the dapp is already authorized and the
+ * scene shows exactly one wallet popup. The CLI runs with BROWSER pointing at a
+ * wrapper that hands the approval URL to the driver, so the on-camera command
+ * has no --print flag and the tab appears to open naturally.
+ *
+ * Run: ./setup.sh (once) && xvfb-run -a -s "-screen 0 1600x1000x24" node record.mts
+ * Output: demo-e2e.mp4
+ */
+
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, createWriteStream, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { ANVIL_CHAIN_ID, CLI } from "./config.mts";
+import { approveRequestWindow, bootAmbire, children, registerCleanup, runCli, sleep, startAnvil } from "./lib.mts";
+
+if (!CLI) throw new Error("browser-web3-signer binary not found — cargo build first");
+const SCREEN = { w: 1600, h: 1000 };
+const TERM_W = 620; // xterm pane; browser gets the rest
+registerCleanup(() => spawnSync("tmux", ["kill-session", "-t", "ambdemo"]));
+
+const rpc = await startAnvil(join(import.meta.dirname, "anvil.log"));
+
+const { ctx, extId, tab } = await bootAmbire({
+  cursorOverlay: true,
+  extraArgs: [`--window-position=${TERM_W},0`, `--window-size=${SCREEN.w - TERM_W},${SCREEN.h}`],
+});
+
+// ---- warm-up (off-camera): authorize the dapp so the scene has one popup ----
+{
+  const warm = runCli(CLI, ["evm", "sign-message", "--message", "warmup"]);
+  const page = await ctx.newPage();
+  await page.goto(await warm.url, { waitUntil: "load" });
+  await page.getByRole("button", { name: /sign/i }).first().click();
+  if (!(await approveRequestWindow(ctx, ["dapp-connect-button"], { rounds: 8 }))) throw new Error("warmup connect failed");
+  if (!(await approveRequestWindow(ctx, ["button-sign"], { rounds: 8 }))) throw new Error("warmup sign failed");
+  await warm.exit;
+  await page.close();
+  console.log("warm-up done (dapp authorized)");
+}
+
+// Tidy the browser: exactly one tab (the wallet dashboard) before the scene
+await tab.goto(`chrome-extension://${extId}/tab.html#/dashboard`, { waitUntil: "load" }).catch(() => {});
+for (const p of ctx.pages()) if (p !== tab && !p.isClosed()) await p.close().catch(() => {});
+await sleep(1000);
+
+// ---- terminal pane: tmux inside xterm; BROWSER wrapper feeds us the URL ----
+const work = mkdtempSync(join(tmpdir(), "ambire-rec-"));
+const urlFile = join(work, "approval-url.txt");
+const wrapper = join(work, "browser-open.sh");
+writeFileSync(wrapper, `#!/bin/sh\necho "$1" >> ${urlFile}\n`);
+chmodSync(wrapper, 0o755);
+
+// Neutral shell: no hostname/user in the prompt.
+spawnSync("tmux", ["new-session", "-d", "-s", "ambdemo", "-x", "70", "-y", "40",
+  "-e", `BROWSER=${wrapper}`, "-e", `PATH=${dirname(CLI)}:${process.env.PATH}`, "-e", "PS1=$ ",
+  "bash --norc --noprofile"]);
+spawnSync("tmux", ["set", "-t", "ambdemo", "status", "off"]);
+const xterm = spawn("xterm", [
+  "-fa", "DejaVu Sans Mono", "-fs", "14",
+  "-bg", "#0d1117", "-fg", "#e6edf3",
+  "-geometry", "70x40+0+0",
+  "-e", "tmux", "attach", "-t", "ambdemo",
+]);
+children.push(xterm);
+await sleep(2500);
+spawnSync("tmux", ["send-keys", "-t", "ambdemo", "clear", "Enter"]);
+await sleep(800);
+
+// ---- start recording ----
+const ffmpegLog = createWriteStream(join(import.meta.dirname, "ffmpeg.log"));
+const ffmpeg = spawn("ffmpeg", [
+  "-y", "-f", "x11grab", "-framerate", "30",
+  "-video_size", `${SCREEN.w}x${SCREEN.h}`, "-i", process.env.DISPLAY!,
+  "-codec:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
+  join(import.meta.dirname, "demo-e2e.mp4"),
+]);
+ffmpeg.stderr.pipe(ffmpegLog);
+await sleep(1500);
+
+// ---- the scene ----
+const command =
+  `browser-web3-signer evm send-transaction --chain ${ANVIL_CHAIN_ID} --to 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 --value 100000000000000000`;
+for (const ch of command) {
+  spawnSync("tmux", ["send-keys", "-t", "ambdemo", "-l", ch]);
+  await sleep(45 + Math.floor(Math.random() * 40));
+}
+await sleep(700);
+spawnSync("tmux", ["send-keys", "-t", "ambdemo", "Enter"]);
+
+// The BROWSER wrapper receives the approval URL; open it as the "opened" tab.
+let dappUrl = "";
+for (let i = 0; i < 100 && !dappUrl; i++) {
+  if (existsSync(urlFile)) dappUrl = readFileSync(urlFile, "utf8").trim().split("\n")[0] ?? "";
+  if (!dappUrl) await sleep(200);
+}
+if (!dappUrl) {
+  console.error("terminal pane at failure:\n" + spawnSync("tmux", ["capture-pane", "-t", "ambdemo", "-p"]).stdout.toString());
+  throw new Error("BROWSER wrapper never received the approval URL");
+}
+const dapp = await ctx.newPage();
+dapp.setDefaultTimeout(60000);
+await dapp.goto(dappUrl, { waitUntil: "load" });
+await sleep(2600); // let the viewer read the transaction details
+
+const signBtn = dapp.getByRole("button", { name: /sign/i }).first();
+const box = await signBtn.boundingBox();
+if (box) await dapp.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 30 });
+await sleep(400);
+await signBtn.click();
+
+if (!(await approveRequestWindow(ctx, ["transaction-button-sign"], { pauseMs: 2400, glide: true }))) {
+  throw new Error("tx popup not approved");
+}
+
+// Success: page flips, terminal prints the hash; hold, then stop.
+await dapp.getByText("Transaction Sent!").waitFor({ timeout: 30000 });
+await sleep(3500);
+
+ffmpeg.kill("SIGINT");
+await new Promise((r) => ffmpeg.on("exit", r));
+console.log(`video: ${join(import.meta.dirname, "demo-e2e.mp4")}`);
+
+// Verify on-chain (not part of the video); -J joins wrapped pane lines.
+const pane = spawnSync("tmux", ["capture-pane", "-t", "ambdemo", "-p", "-J"]).stdout.toString();
+const hash = pane.match(/0x[0-9a-fA-F]{64}/)?.[0];
+if (hash) {
+  let receipt = null;
+  for (let i = 0; i < 30 && !receipt; i++) {
+    receipt = await rpc("eth_getTransactionReceipt", [hash]);
+    if (!receipt) await sleep(500);
+  }
+  console.log(`tx ${hash} receipt status: ${receipt?.status}`);
+} else {
+  console.log("WARN: no tx hash found in terminal pane");
+}
+await ctx.close();
+process.exit(0);

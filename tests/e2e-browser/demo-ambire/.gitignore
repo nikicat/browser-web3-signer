@@ -1,0 +1,6 @@
+/ambire-build/
+*.png
+*.zip
+*.log
+*.mp4
+/ambire-storage.json
