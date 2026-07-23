@@ -43,11 +43,11 @@ export function cameraKeys(tl: Timeline): CamKey[] {
     { t: t("cli_waiting") + 2.2, ...terminal },
     { t: t("tab_open") + 0.7, ...wide },
     { t: t("tab_open") + 1.7, ...browserCard },
-    { t: t("sign_click") + 0.4, ...browserCard },
-    { t: t("popup_open") + 0.8, ...popup },
+    { t: t("sign_click") + 0.7, ...browserCard }, // linger on the visible click
+    { t: t("popup_open") + 0.9, ...popup },
     { t: t("popup_click") + 1.2, ...popup },
-    { t: t("popup_click") + 2.1, ...wide },
-    { t: t("success") + 1.6, ...termResult },
+    { t: t("success") + 3.2, ...popup }, // the popup becomes the wallet's success screen — hold on it
+    { t: t("success") + 4.4, ...termResult },
     { t: t("end"), ...termResult },
   ];
   // Keep strictly increasing (instant anvil confirmations collapse timestamps).

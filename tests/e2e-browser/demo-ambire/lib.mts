@@ -115,13 +115,17 @@ export async function bootAmbire(opts: { extraArgs?: string[]; cursorOverlay?: b
     // Screen capture shows no OS cursor; draw one that follows Playwright's mouse.
     await ctx.addInitScript(`
 window.addEventListener("DOMContentLoaded", () => {
-  const dot = document.createElement("div");
-  dot.id = "pw-cursor-dot";
-  dot.style.cssText = "position:fixed;z-index:99999;width:16px;height:16px;border-radius:50%;" +
-    "background:rgba(30,30,30,.5);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);" +
-    "pointer-events:none;transform:translate(-50%,-50%);left:-40px;top:-40px";
-  document.body.appendChild(dot);
-  window.addEventListener("mousemove", (e) => { dot.style.left = e.clientX + "px"; dot.style.top = e.clientY + "px"; }, true);
+  const cur = document.createElement("div");
+  cur.id = "pw-cursor-dot";
+  cur.style.cssText = "position:fixed;z-index:99999;width:22px;height:30px;pointer-events:none;" +
+    "left:-60px;top:-60px;transition:transform .08s";
+  cur.innerHTML = '<svg width="22" height="30" viewBox="0 0 22 30">' +
+    '<path d="M2 2 L2 24 L8 19 L12 28 L15.5 26.5 L11.5 17.5 L19 17 Z" ' +
+    'fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>';
+  document.body.appendChild(cur);
+  window.addEventListener("mousemove", (e) => { cur.style.left = e.clientX + "px"; cur.style.top = e.clientY + "px"; }, true);
+  window.addEventListener("mousedown", () => { cur.style.transform = "scale(0.82)"; }, true);
+  window.addEventListener("mouseup", () => { cur.style.transform = "scale(1)"; }, true);
 });
 `);
   }

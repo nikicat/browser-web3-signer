@@ -47,6 +47,10 @@ const rcPath = join(tmpdir(), "ambire-openbox-rc.xml");
 writeFileSync(rcPath, `<?xml version="1.0" encoding="UTF-8"?>
 <openbox_config xmlns="http://openbox.org/3.4/rc">
   <applications>
+    <application role="pop-up">
+      <position force="yes"><x>${POPUP.left}</x><y>${POPUP.top}</y></position>
+      <size><width>${POPUP.width}</width><height>${POPUP.height}</height></size>
+    </application>
     <application title="*Ambire*">
       <position force="yes"><x>${POPUP.left}</x><y>${POPUP.top}</y></position>
       <size><width>${POPUP.width}</width><height>${POPUP.height}</height></size>
@@ -81,6 +85,9 @@ const xterm = spawn("xterm", [
 children.push(xterm);
 await sleep(2500);
 spawnSync("tmux", ["send-keys", "-t", "ambdemo", "clear", "Enter"]);
+
+// Focus the terminal: without X focus xterm draws a hollow block cursor.
+spawnSync("bash", ["-c", "xdotool search --name '^terminal$' windowactivate || true"]);
 
 // Measured outer width of the xterm window (incl. WM frame) — no guessing.
 let termW = TERM_W;
@@ -233,7 +240,7 @@ await sleep(1200); // dwell on the click before the window closes on camera
 // Success: page flips, terminal prints the hash; hold, then stop.
 await dapp.getByText("Transaction Sent!").waitFor({ timeout: 30000 });
 mark("success");
-await sleep(4000);
+await sleep(6000); // success-screen hold + final pan to the terminal
 mark("end");
 
 ffmpeg.kill("SIGINT");

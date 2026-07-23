@@ -25,10 +25,17 @@ mkdirSync(join(REMOTION, "public"), { recursive: true });
 copyFileSync(join(DIR, "demo-master.mp4"), join(REMOTION, "public", "demo-master.mp4"));
 writeFileSync(join(REMOTION, "props.json"), JSON.stringify({ timeline }));
 
-const res = spawnSync(
-  "npx",
-  ["remotion", "render", "src/index.ts", "Demo", join(DIR, "demo-e2e.mp4"), "--props=props.json", "--codec", "h264", "--crf", "20"],
-  { cwd: REMOTION, stdio: ["ignore", "inherit", "inherit"] },
-);
-if (res.status !== 0) process.exit(res.status ?? 1);
+// Modest concurrency: the OffthreadVideo frame extractor flakes ("Failed to
+// fetch ...proxy?src=...") when too many parallel tabs hammer it on a 2560x1600
+// source. One retry for residual flakes.
+for (let attempt = 1; ; attempt++) {
+  const res = spawnSync(
+    "npx",
+    ["remotion", "render", "src/index.ts", "Demo", join(DIR, "demo-e2e.mp4"), "--props=props.json", "--codec", "h264", "--crf", "20", "--concurrency", "2"],
+    { cwd: REMOTION, stdio: ["ignore", "inherit", "inherit"] },
+  );
+  if (res.status === 0) break;
+  if (attempt >= 2) process.exit(res.status ?? 1);
+  console.log("render failed — retrying once");
+}
 console.log(`rendered: ${join(DIR, "demo-e2e.mp4")}`);
