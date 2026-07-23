@@ -189,7 +189,10 @@ if (heading && btnBox) {
   };
   coords.card = await screenCenterOf(dapp, cardMid);
 }
-if (btnBox) await glideTo(dapp, btnBox.x + btnBox.width / 2, btnBox.y + btnBox.height / 2, 1100);
+if (btnBox) {
+  coords.click_sign = await screenCenterOf(dapp, btnBox);
+  await glideTo(dapp, btnBox.x + btnBox.width / 2, btnBox.y + btnBox.height / 2, 1100);
+}
 await sleep(500);
 await signBtn.click();
 mark("sign_click");
@@ -218,7 +221,10 @@ coords.popup = await popup
 mark("popup_open"); // content rendered — camera can push in now
 await sleep(2600); // viewer reads the wallet request
 const sbox = await signId.boundingBox().catch(() => null);
-if (sbox) await glideTo(popup, sbox.x + sbox.width / 2, sbox.y + sbox.height / 2, 1000);
+if (sbox) {
+  coords.click_popup = await screenCenterOf(popup, sbox);
+  await glideTo(popup, sbox.x + sbox.width / 2, sbox.y + sbox.height / 2, 1000);
+}
 await sleep(500);
 await signId.click();
 mark("popup_click");

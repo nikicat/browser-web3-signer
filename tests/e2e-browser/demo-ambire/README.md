@@ -14,10 +14,15 @@ Everything runs inside Xvfb — nothing appears on your desktop.
 xvfb-run -a -s "-screen 0 1600x1000x24" node drive.mts  # sign-message + send-transaction, verified
 ```
 
-`record.mts` records the demo video (`demo-e2e.mp4`): a tmux-driven terminal
-(neutral prompt) types the real command on the left while the Ambire-equipped
-browser handles the approval on the right, captured by ffmpeg from the Xvfb
-display. A warm-up authorization runs off-camera so the scene shows one popup.
+`record.mts` records the demo video: a tmux-driven terminal (neutral prompt)
+types the real command on the left while the Ambire-equipped browser handles
+the approval on the right, captured by ffmpeg from the Xvfb display into a
+2560x1600 master plus `timeline.json` (event timestamps + measured element
+coordinates). A warm-up authorization runs off-camera so the scene shows one
+popup. `render.mts` then renders `demo-e2e.mp4` through the Remotion
+composition in `remotion/` — subpixel pan/zoom (ffmpeg's zoompan quantizes to
+whole pixels and always looks jerky), click ripples at recorded coordinates,
+and padded rounded-corner chrome. One-time setup: `cd remotion && npm install`.
 
 `drive.mts` spawns anvil, boots Ambire from `ambire-storage.json.gz`, runs the
 CLI with `--print`, opens the approval URL in the Ambire-equipped Chromium,
