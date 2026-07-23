@@ -131,14 +131,36 @@ const ffmpeg = spawn("ffmpeg", [
   "-y", "-f", "x11grab", "-draw_mouse", "0", "-framerate", String(FPS),
   "-video_size", `${SCREEN.w}x${SCREEN.h}`, "-i", process.env.DISPLAY!,
   "-codec:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+  "-progress", "pipe:1",
   join(import.meta.dirname, "demo-master.mp4"),
 ]);
 ffmpeg.stderr.pipe(ffmpegLog);
-await sleep(1500);
-const recStart = Date.now();
+// Calibrate the timeline clock against the capture: overlay events must use
+// the video's t=0, not the spawn time (capture starts a few hundred ms after
+// spawn, which desynced click ripples from the footage).
+let recStart = 0;
+await new Promise<void>((resolve) => {
+  let buf = "";
+  const onData = (d: Buffer) => {
+    buf += d.toString();
+    const m = buf.match(/frame=(\d+)/);
+    if (m) {
+      recStart = Date.now() - (parseInt(m[1], 10) / FPS) * 1000;
+      ffmpeg.stdout.off("data", onData);
+      resolve();
+    }
+  };
+  ffmpeg.stdout.on("data", onData);
+});
+console.log("capture clock calibrated");
+await sleep(800);
 const mark = (name: string) => (events[name] = (Date.now() - recStart) / 1000);
 
 // ---- the scene ----
+// Focus the terminal NOW (Chromium windows stole focus since the early
+// activate) so xterm renders a solid block cursor on camera.
+spawnSync("bash", ["-c", "xdotool search --name '^terminal$' windowactivate || true"]);
+await sleep(400);
 mark("typing_start");
 const command =
   `browser-web3-signer evm send-transaction --chain ${ANVIL_CHAIN_ID} --to 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 --value 100000000000000000`;
@@ -240,7 +262,25 @@ await sleep(1200); // dwell on the click before the window closes on camera
 // Success: page flips, terminal prints the hash; hold, then stop.
 await dapp.getByText("Transaction Sent!").waitFor({ timeout: 30000 });
 mark("success");
-await sleep(6000); // success-screen hold + final pan to the terminal
+// Hold the wallet's progress screen until it reaches Confirmed if the wallet
+// can show it. On custom local chains Ambire's cloud tracker doesn't support
+// the chain id, so the step never completes — cap the wait and end on
+// "Signed / In Progress" (the recorder separately verifies the receipt).
+let confirmedSeen = false;
+for (let i = 0; i < 3 && !confirmedSeen; i++) {
+  const w = ctx.pages().filter((p) => !p.isClosed() && p.url().includes("request-window")).pop();
+  if (w) {
+    confirmedSeen =
+      (await w.getByTestId("transaction-confirmed-text").isVisible().catch(() => false)) ||
+      (await w.getByText(/transaction confirmed/i).first().isVisible().catch(() => false));
+  }
+  if (!confirmedSeen) await sleep(1000);
+}
+if (!confirmedSeen) console.log("WARN: confirmed state not detected — ending on progress screen");
+mark("confirmed");
+await sleep(2000); // dwell on the wallet's final state
+spawnSync("bash", ["-c", "xdotool search --name '^terminal$' windowactivate || true"]); // solid cursor for the finale
+await sleep(2400); // final pan + tail
 mark("end");
 
 ffmpeg.kill("SIGINT");

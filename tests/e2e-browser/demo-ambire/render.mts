@@ -29,13 +29,17 @@ writeFileSync(join(REMOTION, "props.json"), JSON.stringify({ timeline }));
 // fetch ...proxy?src=...") when too many parallel tabs hammer it on a 2560x1600
 // source. One retry for residual flakes.
 for (let attempt = 1; ; attempt++) {
+  // TMPDIR on the large disk: the extractor flakes when the small tmpfs /tmp
+  // is under pressure.
+  const tmp = join(REMOTION, ".render-tmp");
+  mkdirSync(tmp, { recursive: true });
   const res = spawnSync(
     "npx",
     ["remotion", "render", "src/index.ts", "Demo", join(DIR, "demo-e2e.mp4"), "--props=props.json", "--codec", "h264", "--crf", "20", "--concurrency", "2"],
-    { cwd: REMOTION, stdio: ["ignore", "inherit", "inherit"] },
+    { cwd: REMOTION, stdio: ["ignore", "inherit", "inherit"], env: { ...process.env, TMPDIR: tmp } },
   );
   if (res.status === 0) break;
-  if (attempt >= 2) process.exit(res.status ?? 1);
+  if (attempt >= 3) process.exit(res.status ?? 1);
   console.log("render failed — retrying once");
 }
 console.log(`rendered: ${join(DIR, "demo-e2e.mp4")}`);
