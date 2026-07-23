@@ -116,6 +116,7 @@ export async function bootAmbire(opts: { extraArgs?: string[]; cursorOverlay?: b
     await ctx.addInitScript(`
 window.addEventListener("DOMContentLoaded", () => {
   const dot = document.createElement("div");
+  dot.id = "pw-cursor-dot";
   dot.style.cssText = "position:fixed;z-index:99999;width:16px;height:16px;border-radius:50%;" +
     "background:rgba(30,30,30,.5);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);" +
     "pointer-events:none;transform:translate(-50%,-50%);left:-40px;top:-40px";
@@ -148,6 +149,41 @@ window.addEventListener("DOMContentLoaded", () => {
 /** Ambire reuses one request window; 'page' events are unreliable under Xvfb. */
 export const findRequestWindow = (ctx: BrowserContext): Page | undefined =>
   ctx.pages().find((p) => !p.isClosed() && p.url().includes("request-window"));
+
+/** Eased, human-paced cursor glide (Playwright's steps run too fast on camera). */
+export async function glideTo(page: Page, x: number, y: number, ms = 900): Promise<void> {
+  const steps = Math.max(24, Math.floor(ms / 16));
+  // Current cursor position is not exposed by Playwright — read the overlay dot.
+  const start = await page
+    .evaluate(() => {
+      const d = document.getElementById("pw-cursor-dot");
+      if (!d || !d.style.left) return null;
+      return { x: parseFloat(d.style.left), y: parseFloat(d.style.top) };
+    })
+    .catch(() => null)
+    .then((p) => p ?? { x: x - 260, y: y + 180 });
+  for (let i = 1; i <= steps; i++) {
+    const p = i / steps;
+    const e = 1 - Math.pow(1 - p, 3); // ease-out cubic
+    await page.mouse.move(start.x + (x - start.x) * e, start.y + (y - start.y) * e);
+    await sleep(ms / steps);
+  }
+}
+
+/** Absolute screen coords of an element's center (for camera targeting). */
+export async function screenCenterOf(page: Page, box: { x: number; y: number; width: number; height: number }): Promise<{ cx: number; cy: number }> {
+  const w = await page.evaluate(() => ({
+    sx: window.screenX,
+    sy: window.screenY,
+    ow: window.outerWidth,
+    oh: window.outerHeight,
+    iw: window.innerWidth,
+    ih: window.innerHeight,
+  }));
+  const borderX = Math.max(0, (w.ow - w.iw) / 2);
+  const header = Math.max(0, w.oh - w.ih - borderX);
+  return { cx: w.sx + borderX + box.x + box.width / 2, cy: w.sy + header + box.y + box.height / 2 };
+}
 
 export interface ApproveOptions {
   rounds?: number;

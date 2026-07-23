@@ -19,6 +19,7 @@ interface Timeline {
   screen: { w: number; h: number };
   termW: number;
   popup: { left: number; top: number; width: number; height: number };
+  coords?: Record<string, { cx: number; cy: number }>; // measured screen-space camera targets
   events: Record<string, number>; // name → seconds since recording start
 }
 const tl: Timeline = JSON.parse(readFileSync(join(DIR, "timeline.json"), "utf8"));
@@ -32,11 +33,17 @@ const t = (name: string): number => {
 // z=2 shows a quarter of the frame. Between keyframes: smoothstep easing.
 const { w: W, h: H } = tl.screen;
 const wide = { cx: W / 2, cy: H / 2, z: 1.0 };
-const terminal = { cx: tl.termW * 0.5, cy: H * 0.2, z: 2.35 };
-const browserCard = { cx: tl.termW + (W - tl.termW) / 2, cy: H * 0.43, z: 2.1 };
+// Keep the crop's left edge at 0 so the prompt's first column stays visible.
+const terminal = { cx: Math.min(tl.termW * 0.5, W / 2.35 / 2), cy: H * 0.2, z: 2.35 };
+// Prefer measured screen-space targets from the recorder; fall back to geometry.
+const browserCard = {
+  cx: tl.coords?.card?.cx ?? tl.termW + (W - tl.termW) / 2,
+  cy: tl.coords?.card?.cy ?? H * 0.43,
+  z: 2.1,
+};
 const popup = {
-  cx: tl.popup.left + tl.popup.width / 2,
-  cy: tl.popup.top + tl.popup.height / 2 + 25, // titlebar shifts content down
+  cx: tl.coords?.popup?.cx ?? tl.popup.left + tl.popup.width / 2,
+  cy: tl.coords?.popup?.cy ?? tl.popup.top + tl.popup.height / 2 + 25,
   z: 1.55, // whole popup incl. its bottom action row stays in frame
 };
 const termResult = { cx: tl.termW * 0.55, cy: H * 0.3, z: 1.7 };
@@ -48,8 +55,8 @@ const rawK: Array<{ t: number; cx: number; cy: number; z: number }> = [
   { t: t("tab_open") + 1.7, ...browserCard }, // push into the approval card
   { t: t("sign_click") + 0.4, ...browserCard },
   { t: t("popup_open") + 0.8, ...popup }, // wallet popup close-up
-  { t: t("popup_click") + 0.6, ...popup },
-  { t: t("popup_click") + 1.5, ...wide }, // wide for the success flip
+  { t: t("popup_click") + 1.2, ...popup }, // dwell on the approved click
+  { t: t("popup_click") + 2.1, ...wide }, // wide for the success flip
   { t: t("success") + 1.6, ...termResult }, // land on the tx hash
   { t: t("end"), ...termResult },
 ];

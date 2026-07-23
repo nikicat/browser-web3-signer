@@ -24,8 +24,10 @@ import {
   bootAmbire,
   children,
   findRequestWindow,
+  glideTo,
   registerCleanup,
   runCli,
+  screenCenterOf,
   sleep,
   startAnvil,
 } from "./lib.mts";
@@ -58,11 +60,40 @@ children.push(wm);
 await sleep(1500);
 if (wm.exitCode !== null) console.log("WARN: openbox not running — recording without a WM (pacman -S openbox)");
 
+// ---- terminal pane first: measure it so the browser starts where it ends ----
+const work = mkdtempSync(join(tmpdir(), "ambire-rec-"));
+const urlFile = join(work, "approval-url.txt");
+const wrapper = join(work, "browser-open.sh");
+writeFileSync(wrapper, `#!/bin/sh\necho "$1" >> ${urlFile}\n`);
+chmodSync(wrapper, 0o755);
+
+// Neutral shell: no hostname/user in the prompt.
+spawnSync("tmux", ["new-session", "-d", "-s", "ambdemo", "-x", "70", "-y", "52",
+  "-e", `BROWSER=${wrapper}`, "-e", `PATH=${dirname(CLI)}:${process.env.PATH}`, "-e", "PS1=$ ",
+  "bash --norc --noprofile"]);
+spawnSync("tmux", ["set", "-t", "ambdemo", "status", "off"]);
+const xterm = spawn("xterm", [
+  "-fa", "DejaVu Sans Mono", "-fs", "20",
+  "-bg", "#0d1117", "-fg", "#e6edf3",
+  "-T", "terminal", "-geometry", "70x52+0+0",
+  "-e", "tmux", "attach", "-t", "ambdemo",
+]);
+children.push(xterm);
+await sleep(2500);
+spawnSync("tmux", ["send-keys", "-t", "ambdemo", "clear", "Enter"]);
+
+// Measured outer width of the xterm window (incl. WM frame) — no guessing.
+let termW = TERM_W;
+const geo = spawnSync("bash", ["-c", "xdotool search --name '^terminal$' getwindowgeometry --shell | grep WIDTH="]).stdout.toString();
+const gw = geo.match(/WIDTH=(\d+)/);
+if (gw) termW = parseInt(gw[1], 10) + 12;
+console.log("terminal pane width:", termW);
+
 const { ctx, extId, tab } = await bootAmbire({
   cursorOverlay: true,
   extraArgs: [
-    `--window-position=${TERM_W},0`,
-    `--window-size=${SCREEN.w - TERM_W},${SCREEN.h - 44}`,
+    `--window-position=${termW},0`,
+    `--window-size=${SCREEN.w - termW},${SCREEN.h - 44}`,
   ],
 });
 
@@ -84,27 +115,6 @@ await tab.goto(`chrome-extension://${extId}/tab.html#/dashboard`, { waitUntil: "
 for (const p of ctx.pages()) if (p !== tab && !p.isClosed()) await p.close().catch(() => {});
 await sleep(1000);
 
-// ---- terminal pane: tmux inside xterm; BROWSER wrapper feeds us the URL ----
-const work = mkdtempSync(join(tmpdir(), "ambire-rec-"));
-const urlFile = join(work, "approval-url.txt");
-const wrapper = join(work, "browser-open.sh");
-writeFileSync(wrapper, `#!/bin/sh\necho "$1" >> ${urlFile}\n`);
-chmodSync(wrapper, 0o755);
-
-// Neutral shell: no hostname/user in the prompt.
-spawnSync("tmux", ["new-session", "-d", "-s", "ambdemo", "-x", "70", "-y", "52",
-  "-e", `BROWSER=${wrapper}`, "-e", `PATH=${dirname(CLI)}:${process.env.PATH}`, "-e", "PS1=$ ",
-  "bash --norc --noprofile"]);
-spawnSync("tmux", ["set", "-t", "ambdemo", "status", "off"]);
-const xterm = spawn("xterm", [
-  "-fa", "DejaVu Sans Mono", "-fs", "20",
-  "-bg", "#0d1117", "-fg", "#e6edf3",
-  "-T", "terminal", "-geometry", "70x52+0+0",
-  "-e", "tmux", "attach", "-t", "ambdemo",
-]);
-children.push(xterm);
-await sleep(2500);
-spawnSync("tmux", ["send-keys", "-t", "ambdemo", "clear", "Enter"]);
 await sleep(800);
 
 // ---- start recording the master ----
@@ -166,11 +176,24 @@ for (let i = 0; i < 10; i++) {
 mark("tab_open"); // card rendered — camera can push in now
 await sleep(2600); // let the viewer read the transaction details
 
-const box = await signBtn.boundingBox();
-if (box) await dapp.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 30 });
-await sleep(400);
+// Measured camera target: center of the approval card (heading box), on screen.
+const coords: Record<string, { cx: number; cy: number }> = {};
+const heading = await dapp.getByText("Send Transaction").first().boundingBox().catch(() => null);
+const btnBox = await signBtn.boundingBox();
+if (heading && btnBox) {
+  const cardMid = {
+    x: heading.x,
+    y: heading.y,
+    width: heading.width,
+    height: btnBox.y + btnBox.height - heading.y,
+  };
+  coords.card = await screenCenterOf(dapp, cardMid);
+}
+if (btnBox) await glideTo(dapp, btnBox.x + btnBox.width / 2, btnBox.y + btnBox.height / 2, 1100);
+await sleep(500);
 await signBtn.click();
 mark("sign_click");
+await sleep(1000); // dwell: let the click land visually before anything moves
 
 // Wallet popup: wait, resize to a natural wallet-window shape, dwell, approve.
 let popup = null;
@@ -189,13 +212,17 @@ try {
 }
 const signId = popup.getByTestId("transaction-button-sign").first();
 await signId.waitFor({ state: "visible", timeout: 15000 });
+coords.popup = await popup
+  .evaluate(() => ({ cx: window.screenX + window.outerWidth / 2, cy: window.screenY + window.outerHeight / 2 }))
+  .catch(() => ({ cx: POPUP.left + POPUP.width / 2, cy: POPUP.top + POPUP.height / 2 }));
 mark("popup_open"); // content rendered — camera can push in now
-await sleep(2400); // viewer reads the wallet request
+await sleep(2600); // viewer reads the wallet request
 const sbox = await signId.boundingBox().catch(() => null);
-if (sbox) await popup.mouse.move(sbox.x + sbox.width / 2, sbox.y + sbox.height / 2, { steps: 25 });
-await sleep(300);
+if (sbox) await glideTo(popup, sbox.x + sbox.width / 2, sbox.y + sbox.height / 2, 1000);
+await sleep(500);
 await signId.click();
 mark("popup_click");
+await sleep(1200); // dwell on the click before the window closes on camera
 
 // Success: page flips, terminal prints the hash; hold, then stop.
 await dapp.getByText("Transaction Sent!").waitFor({ timeout: 30000 });
@@ -207,7 +234,7 @@ ffmpeg.kill("SIGINT");
 await new Promise((r) => ffmpeg.on("exit", r));
 writeFileSync(
   join(import.meta.dirname, "timeline.json"),
-  JSON.stringify({ fps: FPS, screen: SCREEN, termW: TERM_W, popup: POPUP, events }, null, 2),
+  JSON.stringify({ fps: FPS, screen: SCREEN, termW, popup: POPUP, coords, events }, null, 2),
 );
 console.log("master + timeline written; events:", JSON.stringify(events));
 
