@@ -43,7 +43,7 @@ const termResult = { cx: tl.termW * 0.55, cy: H * 0.3, z: 1.7 };
 
 const rawK: Array<{ t: number; cx: number; cy: number; z: number }> = [
   { t: 0, ...terminal }, // close-up while typing
-  { t: t("cli_waiting") + 0.9, ...terminal }, // hold until "Waiting for approval" is visible
+  { t: t("cli_waiting") + 2.2, ...terminal }, // linger so the CLI output can be read
   { t: t("tab_open") + 0.7, ...wide }, // pull out as the tab opens
   { t: t("tab_open") + 1.7, ...browserCard }, // push into the approval card
   { t: t("sign_click") + 0.4, ...browserCard },

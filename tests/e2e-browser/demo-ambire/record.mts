@@ -41,7 +41,18 @@ const rpc = await startAnvil(join(import.meta.dirname, "anvil.log"));
 
 // Window manager inside the Xvfb: real frames/stacking. openbox needs no
 // D-Bus. Optional — the take degrades to frameless windows without it.
-const wm = spawn("openbox", [], { stdio: "ignore" });
+const rcPath = join(tmpdir(), "ambire-openbox-rc.xml");
+writeFileSync(rcPath, `<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <applications>
+    <application title="*Ambire*">
+      <position force="yes"><x>${POPUP.left}</x><y>${POPUP.top}</y></position>
+      <size><width>${POPUP.width}</width><height>${POPUP.height}</height></size>
+    </application>
+  </applications>
+</openbox_config>
+`);
+const wm = spawn("openbox", ["--config-file", rcPath], { stdio: "ignore" });
 wm.on("error", () => {});
 children.push(wm);
 await sleep(1500);
@@ -51,7 +62,7 @@ const { ctx, extId, tab } = await bootAmbire({
   cursorOverlay: true,
   extraArgs: [
     `--window-position=${TERM_W},0`,
-    `--window-size=${SCREEN.w - TERM_W},${SCREEN.h}`,
+    `--window-size=${SCREEN.w - TERM_W},${SCREEN.h - 44}`,
   ],
 });
 
@@ -81,14 +92,14 @@ writeFileSync(wrapper, `#!/bin/sh\necho "$1" >> ${urlFile}\n`);
 chmodSync(wrapper, 0o755);
 
 // Neutral shell: no hostname/user in the prompt.
-spawnSync("tmux", ["new-session", "-d", "-s", "ambdemo", "-x", "76", "-y", "54",
+spawnSync("tmux", ["new-session", "-d", "-s", "ambdemo", "-x", "70", "-y", "52",
   "-e", `BROWSER=${wrapper}`, "-e", `PATH=${dirname(CLI)}:${process.env.PATH}`, "-e", "PS1=$ ",
   "bash --norc --noprofile"]);
 spawnSync("tmux", ["set", "-t", "ambdemo", "status", "off"]);
 const xterm = spawn("xterm", [
   "-fa", "DejaVu Sans Mono", "-fs", "20",
   "-bg", "#0d1117", "-fg", "#e6edf3",
-  "-T", "terminal", "-geometry", "76x54+0+0",
+  "-T", "terminal", "-geometry", "70x52+0+0",
   "-e", "tmux", "attach", "-t", "ambdemo",
 ]);
 children.push(xterm);
