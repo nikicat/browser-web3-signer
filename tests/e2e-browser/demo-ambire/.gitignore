@@ -1,0 +1,11 @@
+/ambire-build/
+*.png
+*.zip
+*.log
+*.mp4
+timeline.json
+/ambire-storage.json
+remotion/node_modules/
+remotion/public/
+remotion/props.json
+remotion/.render-tmp/

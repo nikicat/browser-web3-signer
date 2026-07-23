@@ -15,12 +15,13 @@ request and reads the result back.
 ## How it works
 
 <p align="center">
-  <img src="docs/demo.gif" alt="Demo: a CLI request opens an approval page; you connect your wallet, review the transaction, and approve — the terminal gets the result">
+  <img src="docs/demo.gif" alt="Demo: the CLI sends a transaction through your own wallet — the command runs in a terminal, an approval page opens in the browser, the Ambire wallet popup asks for confirmation, and the terminal prints the transaction hash">
 </p>
 
 <p align="center">
-  <em>The approval flow, recorded against the E2E mock wallet — with a real wallet the
-  extension's own popup appears on top for the final confirmation.</em>
+  <em>Real end to end: a real terminal, the production Ambire wallet extension, and a
+  local anvil chain — nothing mocked. Recorded reproducibly by
+  <a href="tests/e2e-browser/demo-ambire">tests/e2e-browser/demo-ambire</a>.</em>
 </p>
 
 <p align="center">
