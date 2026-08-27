@@ -295,6 +295,21 @@
         // The adapter exhausted its options without the wallet ever showing UI — stop offering
         // the button and fall back to the manual-switch instructions.
         accountChangeUnsupported = true;
+        // Connect dead end: no wallet UI to raise, and no accountsChanged coming — the dapp stays
+        // pinned to the connected account (Ambire). If the wallet arbitrates mismatched signers
+        // itself (walletHandlesMismatch), deliver the requested account; it prompts at signing time.
+        if (adapter.walletHandlesMismatch && request.type === "connect" && viewStatus === "wrong_address" && !finished) {
+          viewStatus = "connecting";
+          cleanupAccountsListener();
+          try {
+            await finishConnect(expectedAddress());
+          } catch (err2) {
+            viewError = errMessage(err2, "Connection failed");
+            viewStatus = "error";
+            render();
+          }
+          return;
+        }
       } else if (addr) {
         await maybeResume(addr);
       }
