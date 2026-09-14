@@ -9,9 +9,10 @@
 #              with raw per-target binaries + SHA256SUMS, and push the go/vX.Y.Z tag that
 #              versions the Go module in go/ (subdirectory modules need their own prefixed tag)
 #   npm        publish 5 @nikicat/browser-web3-signer-<platform> packages carrying the
-#              binaries, then the main browser-web3-signer package with them injected as
-#              exact-pinned optionalDependencies (scripts/npm-platform.mjs; the esbuild
-#              pattern — nothing is ever committed by this pipeline)
+#              binaries, wait until they are installable, then publish the main
+#              browser-web3-signer package with them injected as exact-pinned
+#              optionalDependencies (scripts/npm-platform.mjs; the esbuild pattern —
+#              nothing is ever committed by this pipeline)
 #   crates     publish the 4 workspace crates to crates.io in dependency order
 #   verify     on every runner OS: `npm install browser-web3-signer@<version>` from the
 #              real registry into a scratch dir and spawn `serve` through it — proves the
@@ -280,6 +281,15 @@ jobs:
             fi
           done
 
+      # npm has no `publish --wait`. Main pins these exactly and npm skips an optional dep it
+      # cannot resolve, so publishing main first would hand users a binary-less install.
+      - name: Wait for the platform packages to be installable
+        if: env.DRY_RUN != 'true'
+        run: |
+          for dir in pkgs/*/; do
+            scripts/npm-wait-resolvable.sh "$(jq -r .name "$dir/package.json")" "$VERSION"
+          done
+
       - name: Publish the main package
         working-directory: ts
         run: |
@@ -377,31 +387,26 @@ jobs:
         with:
           node-version: 22
 
-      # No repo checkout: the scratch project sees only what a real user gets from npm.
-      - name: Install from the registry (with propagation retries)
+      # The checkout is only for the wait script; the scratch project below sees nothing but
+      # what a real user gets from npm.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts
+          path: repo
+
+      - name: Wait for the registry, then install
         shell: bash
         run: |
+          pkg="@nikicat/browser-web3-signer-$(node -p 'process.platform + "-" + process.arch')"
+          repo/scripts/npm-wait-resolvable.sh browser-web3-signer "$VERSION"
+          repo/scripts/npm-wait-resolvable.sh "$pkg" "$VERSION"
           mkdir scratch && cd scratch
           npm init -y > /dev/null
           npm pkg set type=module
-          # npm SKIPS an optionalDependency it cannot resolve and still exits 0, so a
-          # platform package that has not propagated yet leaves an install that looks clean
-          # and only fails in the next step, reported as "binary not found" rather than as
-          # the propagation lag it is. Retry until BOTH the main package and this runner's
-          # platform package are there, wiping the tree each round so npm re-resolves the
-          # optional dep instead of reusing the one it already skipped.
-          platform=$(node -p 'process.platform + "-" + process.arch')
-          pkg="@nikicat/browser-web3-signer-$platform"
-          for i in $(seq 1 20); do
-            rm -rf node_modules package-lock.json
-            if npm install --no-audit --no-fund "browser-web3-signer@$VERSION" \
-              && [ -d "node_modules/$pkg" ]; then
-              exit 0
-            fi
-            echo "browser-web3-signer@$VERSION or $pkg not on the registry yet, retry $i/20"
-            sleep 15
-          done
-          echo "::error::browser-web3-signer@$VERSION not fully installable after 5 minutes ($pkg missing)"; exit 1
+          # Own cache: the wait above must not have primed what this install reads.
+          npm install --no-audit --no-fund --cache ./npm-cache "browser-web3-signer@$VERSION"
+          # npm skips an optionalDependency it cannot resolve and still exits 0.
+          [ -d "node_modules/$pkg" ] || { echo "::error::$pkg was not installed"; exit 1; }
 
       - name: Spawn serve through the installed package
         shell: bash
