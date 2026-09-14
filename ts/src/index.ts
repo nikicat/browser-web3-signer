@@ -3,7 +3,10 @@
  *
  * A thin client over the Rust `serve` control API: it spawns and supervises the
  * `browser-web3-signer serve` subprocess (which owns the bridge and the persistent browser tab)
- * and drives it over HTTP, exposing a {@link WalletSignerClient} plus a viem transport + account.
+ * and drives it over HTTP, exposing a {@link WalletSignerClient}.
+ *
+ * The viem transport and account are exported from `browser-web3-signer/viem` instead, so this
+ * entry point stays free of the optional `viem` peer dependency.
  */
 
 export {
@@ -18,11 +21,3 @@ export {
 } from "./client.ts";
 
 export { ServeProcess, type Chain, type ServeProcessOptions } from "./serve-process.ts";
-
-export { walletSignerTransport, type WalletSignerTransportOptions } from "./transport.ts";
-
-export {
-  connectWalletViem,
-  type ConnectWalletViemOptions,
-  type ViemBrowserAccount,
-} from "./viem-account.ts";
