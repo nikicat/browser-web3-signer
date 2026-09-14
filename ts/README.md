@@ -50,8 +50,14 @@ If nothing resolves, the error explains the fixes (reinstall for the
 
 ## Usage
 
+The root entry (`browser-web3-signer`) is viem-free: it exports `WalletSignerClient` and
+`ServeProcess` only. The viem transport and account come from `browser-web3-signer/viem`,
+so `viem` is an optional peer dependency that consumers who only drive the control API
+never have to install.
+
 ```ts
-import { WalletSignerClient, connectWalletViem } from "browser-web3-signer";
+import { WalletSignerClient } from "browser-web3-signer";
+import { connectWalletViem } from "browser-web3-signer/viem";
 import { createWalletClient } from "viem";
 
 const signer = new WalletSignerClient("evm", { defaultChainId: 1 });

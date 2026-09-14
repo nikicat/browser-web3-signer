@@ -226,7 +226,8 @@ No Rust toolchain needed: the binary ships as prebuilt per-platform npm packages
 supervises the `serve` subprocess for its lifetime; construct one and reuse it.
 
 ```ts
-import { WalletSignerClient, connectWalletViem } from "browser-web3-signer";
+import { WalletSignerClient } from "browser-web3-signer";
+import { connectWalletViem } from "browser-web3-signer/viem";
 
 const signer = new WalletSignerClient("evm", { defaultChainId: 1 });
 
@@ -240,7 +241,9 @@ const { account, transport } = await connectWalletViem(signer);
 await signer.shutdown(); // kill the subprocess when done
 ```
 
-TRON works the same way (`new WalletSignerClient("tron")`). Binary resolution order, the
+TRON works the same way (`new WalletSignerClient("tron")`). The viem helpers live on the
+`browser-web3-signer/viem` subpath so the root entry never imports viem — it stays an
+optional peer dependency you only install if you use it. Binary resolution order, the
 viem transport/account details, and error semantics: [ts/README.md](ts/README.md).
 
 ## Go
