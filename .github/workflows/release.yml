@@ -384,11 +384,24 @@ jobs:
           mkdir scratch && cd scratch
           npm init -y > /dev/null
           npm pkg set type=module
+          # npm SKIPS an optionalDependency it cannot resolve and still exits 0, so a
+          # platform package that has not propagated yet leaves an install that looks clean
+          # and only fails in the next step, reported as "binary not found" rather than as
+          # the propagation lag it is. Retry until BOTH the main package and this runner's
+          # platform package are there, wiping the tree each round so npm re-resolves the
+          # optional dep instead of reusing the one it already skipped.
+          platform=$(node -p 'process.platform + "-" + process.arch')
+          pkg="@nikicat/browser-web3-signer-$platform"
           for i in $(seq 1 20); do
-            npm install --no-audit --no-fund "browser-web3-signer@$VERSION" && exit 0
-            echo "not yet available, retry $i/20"; sleep 15
+            rm -rf node_modules package-lock.json
+            if npm install --no-audit --no-fund "browser-web3-signer@$VERSION" \
+              && [ -d "node_modules/$pkg" ]; then
+              exit 0
+            fi
+            echo "browser-web3-signer@$VERSION or $pkg not on the registry yet, retry $i/20"
+            sleep 15
           done
-          echo "::error::browser-web3-signer@$VERSION not installable after 5 minutes"; exit 1
+          echo "::error::browser-web3-signer@$VERSION not fully installable after 5 minutes ($pkg missing)"; exit 1
 
       - name: Spawn serve through the installed package
         shell: bash
