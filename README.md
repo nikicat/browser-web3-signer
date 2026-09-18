@@ -356,6 +356,12 @@ browser-web3-signer is a Rust reimplementation of the browser-signing capability
 [mcp-wallet-signer](https://github.com/nikicat/mcp-wallet-signer) (a Deno/TS MCP server,
 now superseded by this project), without the MCP layer.
 
+That repo's three npm packages — `mcp-wallet-signer`, `browser-evm-signer` and
+`browser-tron-signer` — are now thin shims that spawn this project's `serve` process, so
+existing installs keep working. This CLI itself speaks no MCP: an agent runs
+`browser-web3-signer evm send …` like any other command. If your client insists on an MCP
+server, `npx -y mcp-wallet-signer` is the stdio shim over it.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
