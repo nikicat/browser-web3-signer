@@ -260,6 +260,27 @@ test.describe("Adding Unknown Chains", () => {
     expect(registryHits).toBe(2);
   });
 
+  test("clears the error once the wallet reaches the requested chain", async ({ browser }) => {
+    await using ctx = await chain1Wallet(browser);
+    await ctx.route(REGISTRY, (route) => route.abort());
+    const page = await ctx.newPage();
+    const { id } = await createTestRequest("sign_message", { message: "Hello, Gnosis!", chainId: 100 });
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await page.getByRole("button", { name: "Sign" }).click();
+    await expect(page.locator("#msg-err")).toBeVisible({ timeout: 10000 });
+
+    // The user adds the network in the wallet itself, which then switches to it.
+    await page.evaluate((chain) => (window as any).ethereum.request({ method: "wallet_addEthereumChain", params: [chain] }), {
+      chainId: "0x64",
+      chainName: "Gnosis",
+      nativeCurrency: GNOSIS.nativeCurrency,
+      rpcUrls: ["https://rpc.gnosischain.com"],
+    });
+    await expect(page.locator("#msg-err")).toBeHidden();
+    await expect(page.getByText("Hello, Gnosis!")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign" })).toBeEnabled();
+  });
+
   test("prefers the request's rpcUrl over the built-in chain entry", async ({ browser }) => {
     let registryHits = 0;
     // Base (8453) is built in, but a caller pointing at its own node must win.

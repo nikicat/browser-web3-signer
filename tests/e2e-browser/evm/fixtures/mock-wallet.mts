@@ -198,20 +198,28 @@ function installMockWallet(cfg: MockWalletConfig) {
         if (known) {
           const id = parseInt(params[0].chainId, 16);
           if (!known.includes(id)) throw { code: 4902, message: "Unrecognized chain ID " + params[0].chainId };
-          currentChainId = id;
+          setChain(id);
         }
         return null;
       },
       wallet_addEthereumChain: async (params) => {
         console.log("[MockWallet] wallet_addEthereumChain:", params);
         if (known) {
+          const id = parseInt(params[0].chainId, 16);
           provider._addedChains.push(params[0]);
-          currentChainId = parseInt(params[0].chainId, 16);
-          known.push(currentChainId);
+          known.push(id);
+          setChain(id);
         }
         return null;
       },
     };
+  }
+
+  /** Makes `id` the active chain and announces it as EIP-1193 `chainChanged`, as wallets do. */
+  function setChain(id: number) {
+    if (id === currentChainId) return;
+    currentChainId = id;
+    provider._emit("chainChanged", toHex(id));
   }
 
   /** Returns the handlers that sign or send, with canned hashes and signatures. */

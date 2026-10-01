@@ -671,7 +671,7 @@
 
         async function getChainId() {
           var hex = await rpc("eth_chainId");
-          return parseInt(hex, 16);
+          return fromQuantity(hex);
         }
 
         /**
@@ -849,6 +849,11 @@
           return /^https:\/\//.test(url) && url.indexOf("${") < 0;
         }
 
+        /** Returns an EIP-1474 hex quantity as a number. */
+        function fromQuantity(hex) {
+          return parseInt(hex, 16);
+        }
+
         /** Returns `n` (a number or decimal string) as an EIP-1474 hex quantity. */
         function toQuantity(n) {
           return "0x" + BigInt(n).toString(16);
@@ -908,6 +913,13 @@
           },
           walletName: getWalletName,
           walletIcon: getWalletIcon,
+          onChainReady: function (request, cb) {
+            var provider = getProvider();
+            if (!provider || !request.chainId) return;
+            provider.on("chainChanged", function (hex) {
+              if (fromQuantity(hex) === request.chainId) cb();
+            });
+          },
           // EVM addresses are case-insensitive 0x-hex.
           addressMatch: function (a, b) {
             return String(a).toLowerCase() === String(b).toLowerCase();

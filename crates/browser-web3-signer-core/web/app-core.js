@@ -30,6 +30,8 @@
  *                                          // prompt; resolves to the address to resume with
  *                                          // ("" when nothing changed), or null when the wallet
  *                                          // offers no working account-change UI at all
+ *   onChainReady?(request, cb): void       // optional: call cb whenever the wallet becomes ready
+ *                                          // for request's chain (EVM: chainChanged to it)
  *   walletHandlesMismatch?: boolean        // optional: the wallet safely handles an operation
  *                                          // for a non-selected account (native switch flow, or
  *                                          // a hard reject — true for EVM wallets); when absent
@@ -733,6 +735,14 @@
     },
   };
 
+  /** Returns a failed view to the normal one, for an error the wallet has since resolved. */
+  function clearStaleError() {
+    if (viewStatus !== "error" || finished) return;
+    viewStatus = "idle";
+    viewError = "";
+    render();
+  }
+
   // --- Init ---
   async function init() {
     await adapter.setup();
@@ -747,6 +757,9 @@
 
     try {
       request = await fetchPendingRequest(match[2]);
+      // An error shown before the wallet reached the request's chain was likely the missing
+      // network; the user retries from the normal view instead of a stale message.
+      if (adapter.onChainReady) adapter.onChainReady(request, clearStaleError);
       if (request.type === "connect") {
         showView("view-connect");
         renderConnect();
