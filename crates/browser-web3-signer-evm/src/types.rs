@@ -4,6 +4,7 @@
 //! The request *kind* is the enum variant itself (serde-tagged via `type`), not a stored
 //! string — there is one source of truth for the discriminator.
 
+use alloy::primitives::Bytes;
 use browser_web3_signer_core::{Request, RequestMeta, Url, UrlKind};
 use serde::Serialize;
 use uuid::Uuid;
@@ -23,6 +24,53 @@ pub struct TypedData {
     pub primary_type: String,
     /// The structured message.
     pub message: serde_json::Value,
+}
+
+/// What `personal_sign` signs, in viem's shape: text, or `{ "raw": "0x…" }` for exact bytes such
+/// as a hash a Safe expects signed as-is, not as the 66 characters of its hex.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum SignableMessage {
+    /// Text, signed as its UTF-8 bytes.
+    Text(String),
+    /// Bytes, signed unchanged.
+    Raw {
+        /// The bytes, `0x`-hex on the wire.
+        #[serde(serialize_with = "crate::domain::serialize_hex")]
+        raw: Bytes,
+    },
+}
+
+impl From<String> for SignableMessage {
+    fn from(text: String) -> Self {
+        Self::Text(text)
+    }
+}
+
+impl From<&str> for SignableMessage {
+    fn from(text: &str) -> Self {
+        Self::Text(text.to_owned())
+    }
+}
+
+impl From<Bytes> for SignableMessage {
+    fn from(raw: Bytes) -> Self {
+        Self::Raw { raw }
+    }
+}
+
+impl SignableMessage {
+    /// Returns the message in a request body: a string, or an object whose `raw` is `0x`-hex.
+    /// Errors when the field is missing, another JSON type, or `raw` is not hex.
+    fn from_json(body: &serde_json::Value) -> Result<Self, String> {
+        match body.get("message") {
+            Some(serde_json::Value::String(text)) => Ok(Self::Text(text.clone())),
+            Some(object @ serde_json::Value::Object(_)) => Ok(Self::Raw {
+                raw: req_parsed(object, "raw")?,
+            }),
+            _ => Err("missing 'message': expected a string or { raw: \"0x…\" }".to_owned()),
+        }
+    }
 }
 
 /// A pending EVM request. The `type` discriminator is derived from the variant.
@@ -91,8 +139,8 @@ pub enum EvmRequest {
         /// Chain id.
         #[serde(rename = "chainId", skip_serializing_if = "Option::is_none")]
         chain_id: Option<ChainId>,
-        /// The message to sign (plain text).
-        message: String,
+        /// The message to sign.
+        message: SignableMessage,
         /// Address to sign with (defaults to the connected account).
         #[serde(skip_serializing_if = "Option::is_none")]
         address: Option<Address>,
@@ -162,7 +210,7 @@ impl Request for EvmRequest {
                 max_priority_fee_per_gas: opt_parsed(body, "maxPriorityFeePerGas")?,
             })),
             "sign_message" => Ok(Self::sign_message(
-                str_field(body, "message")?.to_owned(),
+                SignableMessage::from_json(body)?,
                 opt_parsed(body, "address")?,
                 chain_id,
             )),
@@ -255,7 +303,7 @@ impl EvmRequest {
 
     /// Build a `sign_message` request.
     pub fn sign_message(
-        message: String,
+        message: SignableMessage,
         address: Option<Address>,
         chain_id: Option<ChainId>,
     ) -> Self {
@@ -383,6 +431,39 @@ mod tests {
         assert_eq!(json["primaryType"], "Mail");
         assert_eq!(json["domain"]["name"], "X");
         assert_eq!(json["message"]["a"], 1);
+    }
+
+    #[test]
+    fn sign_message_wire_shape_is_text_or_raw_hex() {
+        let text = EvmRequest::sign_message("hi".into(), None, None);
+        assert_eq!(serde_json::to_value(&text).unwrap()["message"], "hi");
+
+        let raw = EvmRequest::sign_message(Bytes::from(vec![0xff; 2]).into(), None, None);
+        let wire = serde_json::to_value(&raw).unwrap();
+        assert_eq!(wire["message"], serde_json::json!({ "raw": "0xffff" }));
+
+        // The serve API parses that wire shape back to the same message.
+        let EvmRequest::SignMessage { message, .. } = EvmRequest::from_json(&wire).unwrap() else {
+            panic!("expected sign_message");
+        };
+        assert_eq!(
+            message,
+            SignableMessage::Raw {
+                raw: Bytes::from(vec![0xff; 2])
+            }
+        );
+    }
+
+    #[test]
+    fn sign_message_rejects_a_malformed_message() {
+        for message in [
+            serde_json::json!({ "raw": "nothex" }),
+            serde_json::json!({}),
+            serde_json::json!(5),
+        ] {
+            let body = serde_json::json!({ "type": "sign_message", "message": message });
+            assert!(EvmRequest::from_json(&body).is_err(), "accepted {message}");
+        }
     }
 
     #[test]

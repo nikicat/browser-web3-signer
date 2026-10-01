@@ -7,7 +7,14 @@
 
 import { type BrowserContext, expect, test } from "@playwright/test";
 import { createTestRequest, getBaseUrl, getTestResult, startServer, stopServer } from "./fixtures/test-server.mts";
-import { FAKE_CONTRACT_BASE58, FAKE_TX_ID, getMockProviderScript, TEST_ADDRESS, TEST_NETWORK } from "./fixtures/mock-wallet.mts";
+import {
+  addMockTronLink,
+  FAKE_CONTRACT_BASE58,
+  FAKE_TX_ID,
+  type MockTronLinkOptions,
+  TEST_ADDRESS,
+  TEST_NETWORK,
+} from "./fixtures/mock-wallet.mts";
 
 test.beforeAll(async () => {
   await startServer();
@@ -19,10 +26,10 @@ test.afterAll(async () => {
 
 async function walletContext(
   browser: import("@playwright/test").Browser,
-  options?: Parameters<typeof getMockProviderScript>[0],
+  options?: MockTronLinkOptions,
 ): Promise<BrowserContext> {
   const ctx = await browser.newContext();
-  await ctx.addInitScript(getMockProviderScript(options));
+  await addMockTronLink(ctx, options);
   return ctx;
 }
 
@@ -54,7 +61,7 @@ async function patchWindowClose(page: import("@playwright/test").Page) {
 
 test.describe("Wallet Connection", () => {
   test("connects successfully with mock TronLink", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("connect", { network: TEST_NETWORK });
@@ -70,22 +77,18 @@ test.describe("Wallet Connection", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(result?.result).toBe(TEST_ADDRESS);
-
-    await ctx.close();
   });
 
   test("shows not-found for expired request", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     await page.goto(`${getBaseUrl()}/connect/00000000-0000-0000-0000-000000000000`);
     await expect(page.getByText("Request Not Found")).toBeVisible();
-
-    await ctx.close();
   });
 
   test("shows error when no TronLink is detected", async ({ browser }) => {
-    const ctx = await browser.newContext(); // no mock wallet
+    await using ctx = await browser.newContext(); // no mock wallet
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("connect", { network: TEST_NETWORK });
@@ -93,12 +96,10 @@ test.describe("Wallet Connection", () => {
 
     await expect(page.getByRole("heading", { name: "Connect Tron Wallet" })).toBeVisible();
     await expect(page.locator("#connect-no-wallet")).toBeVisible();
-
-    await ctx.close();
   });
 
   test("connects with matching required address", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("connect", {
@@ -116,12 +117,10 @@ test.describe("Wallet Connection", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(result?.result).toBe(TEST_ADDRESS);
-
-    await ctx.close();
   });
 
   test("shows wrong address when required address does not match", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     // A valid-but-different address (upstream used a non-checksum placeholder; the Rust
@@ -142,12 +141,10 @@ test.describe("Wallet Connection", () => {
     // The request is left pending — user is invited to switch accounts or click Cancel.
     const result = await getTestResult(id);
     expect(result?.pending).toBe(true);
-
-    await ctx.close();
   });
 
   test("cancels wallet connection", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("connect", { network: TEST_NETWORK });
@@ -162,12 +159,10 @@ test.describe("Wallet Connection", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("cancelled");
-
-    await ctx.close();
   });
 
   test("shows a TronLink connect rejection in-page and lets the user cancel", async ({ browser }) => {
-    const ctx = await walletContext(browser, { rejectConnect: true });
+    await using ctx = await walletContext(browser, { rejectConnect: true });
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("connect", { network: TEST_NETWORK });
@@ -188,8 +183,6 @@ test.describe("Wallet Connection", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("cancel");
-
-    await ctx.close();
   });
 });
 
@@ -197,7 +190,7 @@ test.describe("Wallet Connection", () => {
 
 test.describe("Send TRX", () => {
   test("signs and broadcasts a TRX transfer", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("send_transaction", {
@@ -216,12 +209,10 @@ test.describe("Send TRX", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(result?.result).toBe(FAKE_TX_ID);
-
-    await ctx.close();
   });
 
   test("rejects TRX transfer when user closes popup", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("send_transaction", {
@@ -240,12 +231,10 @@ test.describe("Send TRX", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("rejected");
-
-    await ctx.close();
   });
 
   test("shows a TronLink sign rejection in-page and lets the user reject", async ({ browser }) => {
-    const ctx = await walletContext(browser, { rejectSign: true });
+    await using ctx = await walletContext(browser, { rejectSign: true });
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("send_transaction", {
@@ -268,8 +257,6 @@ test.describe("Send TRX", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("rejected");
-
-    await ctx.close();
   });
 });
 
@@ -277,7 +264,7 @@ test.describe("Send TRX", () => {
 
 test.describe("Trigger Contract", () => {
   test("calls a contract function via TronLink", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("trigger_contract", {
@@ -302,8 +289,6 @@ test.describe("Trigger Contract", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(result?.result).toBe(FAKE_TX_ID);
-
-    await ctx.close();
   });
 });
 
@@ -322,7 +307,7 @@ const SAMPLE_BYTECODE = "0x6080604052" + "ab".repeat(60);
 
 test.describe("Deploy Contract", () => {
   test("deploys a contract via createSmartContract and returns txHash + address", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("deploy_contract", {
@@ -353,12 +338,10 @@ test.describe("Deploy Contract", () => {
     const parsed = JSON.parse(result!.result!);
     expect(parsed.txHash).toBe(FAKE_TX_ID);
     expect(parsed.contractAddress).toBe(FAKE_CONTRACT_BASE58);
-
-    await ctx.close();
   });
 
   test("renders deploy view without parameters when constructor takes no args", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("deploy_contract", {
@@ -375,12 +358,10 @@ test.describe("Deploy Contract", () => {
 
     await page.getByRole("button", { name: "Deploy" }).click();
     await expect(page.getByText("Transaction Sent!")).toBeVisible({ timeout: 10000 });
-
-    await ctx.close();
   });
 
   test("shows a TronLink deploy rejection in-page and lets the user reject", async ({ browser }) => {
-    const ctx = await walletContext(browser, { rejectSign: true });
+    await using ctx = await walletContext(browser, { rejectSign: true });
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("deploy_contract", {
@@ -404,12 +385,10 @@ test.describe("Deploy Contract", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("rejected");
-
-    await ctx.close();
   });
 
   test("rejects deployment when user closes popup", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("deploy_contract", {
@@ -428,8 +407,6 @@ test.describe("Deploy Contract", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("rejected");
-
-    await ctx.close();
   });
 });
 
@@ -437,7 +414,7 @@ test.describe("Deploy Contract", () => {
 
 test.describe("Message Signing", () => {
   test("signs a message via signMessageV2", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("sign_message", {
@@ -455,12 +432,10 @@ test.describe("Message Signing", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(result?.result).toMatch(/^0x[a-f0-9]+$/i);
-
-    await ctx.close();
   });
 
   test("rejects message signing via Reject button", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("sign_message", {
@@ -478,12 +453,10 @@ test.describe("Message Signing", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("rejected");
-
-    await ctx.close();
   });
 
   test("signs TIP-712 typed data", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("sign_typed_data", {
@@ -503,12 +476,10 @@ test.describe("Message Signing", () => {
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
-
-    await ctx.close();
   });
 
   test("rejects typed data signing", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("sign_typed_data", {
@@ -529,7 +500,5 @@ test.describe("Message Signing", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("rejected");
-
-    await ctx.close();
   });
 });

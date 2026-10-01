@@ -9,6 +9,8 @@
  * not real chain submission.
  */
 
+import type { BrowserContext } from "@playwright/test";
+
 // A checksum-valid TRON Base58 address. (The upstream reference used a placeholder that does
 // not pass Base58Check; the Rust `TronAddress` validates on construction, so any request that
 // carries an `address` must use a real one. The mock-returned address takes the result path and
@@ -34,48 +36,66 @@ export interface MockTronLinkOptions {
   rejectSign?: boolean;
 }
 
+/** The mock's settings with every default resolved, as `installMockTronLink` receives them. */
+interface MockTronLinkConfig {
+  address: string;
+  rejectConnect: boolean;
+  rejectSign: boolean;
+  nodeHost: string;
+  fakes: {
+    txId: string;
+    signature: string;
+    typedSignature: string;
+    contractHex: string;
+    contractBase58: string;
+  };
+}
+
 /**
- * Generate the mock provider script to inject into the browser via addInitScript.
- *
- * We attach the mocks under window.__tronLinkMock and synchronously assign window.tronWeb /
- * window.tronLink to them. The index.html calls waitForTronWeb() with a 1.5s deadline; by
- * setting these synchronously in addInitScript, they're already present before init() runs.
+ * Installs mock `window.tronLink` and `window.tronWeb` in every page of `ctx` before the page's
+ * own scripts run, so they are present before the page's `waitForTronWeb()` deadline starts.
  */
-export function getMockProviderScript(options?: MockTronLinkOptions): string {
-  const address = options?.address ?? TEST_ADDRESS;
-  const rejectConnect = options?.rejectConnect ?? false;
-  const rejectSign = options?.rejectSign ?? false;
+export function addMockTronLink(
+  ctx: Pick<BrowserContext, "addInitScript">,
+  options?: MockTronLinkOptions,
+) {
+  return ctx.addInitScript(installMockTronLink, {
+    address: options?.address ?? TEST_ADDRESS,
+    rejectConnect: options?.rejectConnect ?? false,
+    rejectSign: options?.rejectSign ?? false,
+    nodeHost: TEST_NODE_HOST,
+    fakes: {
+      txId: FAKE_TX_ID,
+      signature: FAKE_SIGNATURE,
+      typedSignature: FAKE_TYPED_SIGNATURE,
+      contractHex: FAKE_CONTRACT_HEX,
+      contractBase58: FAKE_CONTRACT_BASE58,
+    },
+  });
+}
 
-  return `
-(function() {
-  const ADDRESS = ${JSON.stringify(address)};
-  const REJECT_CONNECT = ${rejectConnect};
-  const REJECT_SIGN = ${rejectSign};
-  const FAKE_TX_ID = ${JSON.stringify(FAKE_TX_ID)};
-  const FAKE_SIGNATURE = ${JSON.stringify(FAKE_SIGNATURE)};
-  const FAKE_TYPED_SIGNATURE = ${JSON.stringify(FAKE_TYPED_SIGNATURE)};
-  const FAKE_CONTRACT_HEX = ${JSON.stringify(FAKE_CONTRACT_HEX)};
-  const FAKE_CONTRACT_BASE58 = ${JSON.stringify(FAKE_CONTRACT_BASE58)};
-
+// Runs in the browser: Playwright ships it as source, so it may use only `cfg` and browser
+// globals, never this module's imports or constants.
+function installMockTronLink(cfg: MockTronLinkConfig) {
   const tronWeb = {
-    defaultAddress: { base58: ADDRESS, hex: "41" + "00".repeat(20), name: false },
-    fullNode: { host: ${JSON.stringify(TEST_NODE_HOST)} },
+    defaultAddress: { base58: cfg.address, hex: "41" + "00".repeat(20), name: false },
+    fullNode: { host: cfg.nodeHost },
 
     transactionBuilder: {
-      async sendTrx(to, amount, from) {
+      async sendTrx(to: string, amount: number, from: string) {
         console.log("[MockTronWeb] sendTrx:", to, amount, from);
         return {
-          txID: FAKE_TX_ID,
+          txID: cfg.fakes.txId,
           raw_data: { contract: [{ type: "TransferContract", parameter: { value: { to_address: to, amount, owner_address: from } } }] },
           raw_data_hex: "deadbeef",
         };
       },
-      async triggerSmartContract(contract, functionSelector, options, parameters, from) {
+      async triggerSmartContract(contract: string, functionSelector: string, options: object, parameters: unknown[], from: string) {
         console.log("[MockTronWeb] triggerSmartContract:", contract, functionSelector, options, parameters, from);
         return {
           result: { result: true },
           transaction: {
-            txID: FAKE_TX_ID,
+            txID: cfg.fakes.txId,
             raw_data: {
               contract: [{
                 type: "TriggerSmartContract",
@@ -86,15 +106,15 @@ export function getMockProviderScript(options?: MockTronLinkOptions): string {
           },
         };
       },
-      async createSmartContract(options, ownerAddress) {
+      async createSmartContract(options: { name?: string; abi: unknown; bytecode: string }, ownerAddress: string) {
         console.log("[MockTronWeb] createSmartContract:", options && options.name, ownerAddress);
         return {
-          txID: FAKE_TX_ID,
-          contract_address: FAKE_CONTRACT_HEX,
+          txID: cfg.fakes.txId,
+          contract_address: cfg.fakes.contractHex,
           raw_data: {
             contract: [{
               type: "CreateSmartContract",
-              parameter: { value: { new_contract: { contract_address: FAKE_CONTRACT_HEX, abi: options.abi, bytecode: options.bytecode } } },
+              parameter: { value: { new_contract: { contract_address: cfg.fakes.contractHex, abi: options.abi, bytecode: options.bytecode } } },
             }],
           },
           raw_data_hex: "deadbeef",
@@ -103,32 +123,32 @@ export function getMockProviderScript(options?: MockTronLinkOptions): string {
     },
 
     address: {
-      fromHex(hex) {
+      fromHex(hex: string) {
         console.log("[MockTronWeb] address.fromHex:", hex);
         // Real conversion isn't needed for UI tests — return our canned Base58 value.
-        return FAKE_CONTRACT_BASE58;
+        return cfg.fakes.contractBase58;
       },
     },
 
     trx: {
-      async sign(unsignedTx) {
+      async sign(unsignedTx: { txID: string }) {
         console.log("[MockTronWeb] sign:", unsignedTx && unsignedTx.txID);
-        if (REJECT_SIGN) throw new Error("User rejected the transaction");
+        if (cfg.rejectSign) throw new Error("User rejected the transaction");
         return Object.assign({}, unsignedTx, { signature: ["fake-signature-hex"] });
       },
-      async sendRawTransaction(signedTx) {
+      async sendRawTransaction(signedTx: { txID: string }) {
         console.log("[MockTronWeb] sendRawTransaction:", signedTx && signedTx.txID);
         return { result: true, transaction: signedTx, txid: signedTx.txID };
       },
-      async signMessageV2(message) {
+      async signMessageV2(message: string) {
         console.log("[MockTronWeb] signMessageV2:", message);
-        if (REJECT_SIGN) throw new Error("User rejected message signing");
-        return FAKE_SIGNATURE;
+        if (cfg.rejectSign) throw new Error("User rejected message signing");
+        return cfg.fakes.signature;
       },
-      async _signTypedData(domain, types, message) {
+      async _signTypedData(domain: object, types: object, message: object) {
         console.log("[MockTronWeb] _signTypedData:", JSON.stringify({domain, types, message}));
-        if (REJECT_SIGN) throw new Error("User rejected typed-data signing");
-        return FAKE_TYPED_SIGNATURE;
+        if (cfg.rejectSign) throw new Error("User rejected typed-data signing");
+        return cfg.fakes.typedSignature;
       },
     },
   };
@@ -136,20 +156,18 @@ export function getMockProviderScript(options?: MockTronLinkOptions): string {
   const tronLink = {
     ready: true,
     tronWeb: tronWeb,
-    async request({ method }) {
+    async request({ method }: { method: string }) {
       console.log("[MockTronLink] request:", method);
       if (method === "tron_requestAccounts") {
-        if (REJECT_CONNECT) return { code: 4001, message: "User rejected" };
+        if (cfg.rejectConnect) return { code: 4001, message: "User rejected" };
         return { code: 200, message: "ok" };
       }
       return { code: 4200, message: "Method not supported: " + method };
     },
   };
 
-  window.tronLink = tronLink;
-  window.tronWeb = tronWeb;
+  (window as any).tronLink = tronLink;
+  (window as any).tronWeb = tronWeb;
 
-  console.log("[MockTronLink] Injected at " + ADDRESS);
-})();
-`;
+  console.log("[MockTronLink] Injected at " + cfg.address);
 }

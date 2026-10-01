@@ -171,8 +171,13 @@ impl fmt::Display for CallData {
 
 impl Serialize for CallData {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.0.to_string())
+        serialize_hex(&self.0, s)
     }
+}
+
+/// Writes `bytes` as `0x`-hex, the wire shape the page and wallets expect.
+pub(crate) fn serialize_hex<S: Serializer>(bytes: &Bytes, s: S) -> Result<S::Ok, S::Error> {
+    s.collect_str(bytes)
 }
 
 /// Number of decimal places a token/currency uses.

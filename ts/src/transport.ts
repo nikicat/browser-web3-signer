@@ -4,10 +4,10 @@
  * plain read RPC. Ported from the reference `transport.ts`, retargeted at the HTTP client.
  */
 
-import { custom, hexToString } from "viem";
-import type { CustomTransport } from "viem";
+import { custom, hexToBytes } from "viem";
+import type { CustomTransport, Hex } from "viem";
 
-import type { SendTransactionParams, WalletSignerClient } from "./client.ts";
+import type { SendTransactionParams, SignableMessage, WalletSignerClient } from "./client.ts";
 
 /** Options for {@link walletSignerTransport}. */
 export interface WalletSignerTransportOptions {
@@ -27,9 +27,8 @@ export function walletSignerTransport(
       async request({ method, params }) {
         switch (method) {
           case "personal_sign": {
-            const [messageHex, address] = params as [string, string];
-            const message = hexToString(messageHex as `0x${string}`);
-            return signer.signMessage({ message, address });
+            const [messageHex, address] = params as [Hex, string];
+            return signer.signMessage({ message: signableFromHex(messageHex), address });
           }
 
           case "eth_sendTransaction": {
@@ -84,4 +83,17 @@ export function walletSignerTransport(
     },
     { retryCount: 0 },
   );
+}
+
+/**
+ * Returns `personal_sign` bytes as text when they are exactly the UTF-8 of some text, so the
+ * approval page shows it readably, and as `{ raw }` otherwise (e.g. a hash).
+ */
+function signableFromHex(hex: Hex): SignableMessage {
+  try {
+    // fatal: invalid UTF-8 throws; ignoreBOM keeps a leading BOM, so text re-encodes to `hex`.
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(hexToBytes(hex));
+  } catch {
+    return { raw: hex };
+  }
 }

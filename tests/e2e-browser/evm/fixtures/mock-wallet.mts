@@ -1,10 +1,10 @@
 /**
- * Mock wallet provider for Playwright e2e tests.
- *
- * Generates a script that creates a mock wallet in the browser,
- * announcing it via EIP-6963 events and setting window.ethereum as fallback.
- * The mock returns fake signatures/hashes since we're testing UI flow.
+ * The EIP-1193 wallet the e2e tests and the demo recorder put in front of the approval page:
+ * found over EIP-6963 or `window.ethereum`, it answers with canned hashes and signatures, since
+ * what is under test is the page's flow, not a chain.
  */
+
+import type { BrowserContext } from "@playwright/test";
 
 // Test account (Anvil default account #0)
 export const TEST_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -16,6 +16,10 @@ export const TEST_WALLET_NAME = "MockWallet";
 export const TEST_WALLET_RDNS = "test.mockwallet";
 
 export interface MockWalletOptions {
+  /** The selected account; `TEST_ADDRESS` when unset. */
+  address?: string;
+  /** The active chain; `TEST_CHAIN_ID` when unset. */
+  chainId?: number;
   name?: string;
   rdns?: string;
   /**
@@ -47,72 +51,69 @@ export interface MockWalletOptions {
    * - `"deny-switch"` — Ambire-style switch window denied by the user: throw 4001.
    */
   mismatchedFrom?: "reject" | "switch" | "deny-switch";
+  /**
+   * The chain ids the wallet has networks for: a switch to any other throws EIP-3085 code 4902
+   * until `wallet_addEthereumChain` adds it (params kept in `window.ethereum._addedChains`).
+   * Unset: every switch and add succeeds without changing chains.
+   */
+  knownChains?: number[];
 }
 
-/**
- * Generate the mock provider script to inject into the browser.
- *
- * Sets up both:
- * 1. EIP-6963 announcements (primary — mipd store picks these up)
- * 2. window.ethereum fallback (legacy path)
- */
-export function getMockProviderScript(
-  address: string,
-  chainId: number,
-  options?: MockWalletOptions,
-): string {
-  const name = options?.name ?? TEST_WALLET_NAME;
-  const rdns = options?.rdns ?? TEST_WALLET_RDNS;
-  const requestPermissions = options?.requestPermissions ?? null;
-  const reconnectTo = options?.reconnectTo ?? null;
-  const mismatchedFrom = options?.mismatchedFrom ?? "reject";
+/** The mock's settings with every default resolved, as `installMockWallet` receives them. */
+interface MockWalletConfig {
+  address: string;
+  chainId: number;
+  name: string;
+  rdns: string;
+  requestPermissions: NonNullable<MockWalletOptions["requestPermissions"]> | null;
+  reconnectTo: string | null;
+  mismatchedFrom: NonNullable<MockWalletOptions["mismatchedFrom"]>;
+  knownChains: number[] | null;
+}
 
-  return `
-(function() {
-  const TEST_ADDRESS = "${address}";
-  const TEST_CHAIN_ID = ${chainId};
-  const WALLET_NAME = "${name}";
-  const WALLET_RDNS = "${rdns}";
-  const REQUEST_PERMISSIONS = ${JSON.stringify(requestPermissions)};
-  const RECONNECT_TO = ${JSON.stringify(reconnectTo)};
-  const MISMATCHED_FROM = ${JSON.stringify(mismatchedFrom)};
+/** Installs the mock wallet in every page of `ctx`, ahead of the page's own scripts. */
+export function addMockWallet(ctx: Pick<BrowserContext, "addInitScript">, options?: MockWalletOptions) {
+  return ctx.addInitScript(installMockWallet, {
+    address: options?.address ?? TEST_ADDRESS,
+    chainId: options?.chainId ?? TEST_CHAIN_ID,
+    name: options?.name ?? TEST_WALLET_NAME,
+    rdns: options?.rdns ?? TEST_WALLET_RDNS,
+    requestPermissions: options?.requestPermissions ?? null,
+    reconnectTo: options?.reconnectTo ?? null,
+    mismatchedFrom: options?.mismatchedFrom ?? "reject",
+    knownChains: options?.knownChains ?? null,
+  });
+}
+
+// Runs in the browser: Playwright ships it as source, so it may use only `cfg` and browser
+// globals, never this module's imports or constants.
+function installMockWallet(cfg: MockWalletConfig) {
+  type Listener = (...args: any[]) => void;
+  type Handlers = Record<string, (params: any[]) => Promise<unknown>>;
 
   // Mutable selected account: the approval page re-reads eth_accounts after an account change,
   // so a switch must actually stick, not just be announced.
-  let currentAddress = TEST_ADDRESS;
+  let currentAddress = cfg.address;
   // Whether the origin holds the eth_accounts permission (wallet_revokePermissions clears it).
   let permitted = true;
+  let currentChainId = cfg.chainId;
 
-  function toHex(num) {
+  const provider = makeProvider({
+    ...accountHandlers(),
+    ...chainHandlers(),
+    ...signingHandlers(),
+    eth_getBalance: async () => "0x8AC7230489E80000",
+    eth_estimateGas: async () => "0x5208",
+    eth_gasPrice: async () => "0x3B9ACA00",
+    net_version: async () => String(cfg.chainId),
+  });
+  // Legacy fallback — no isMetaMask flag, so tests can verify the name comes from EIP-6963.
+  (window as any).ethereum = provider;
+  announceOverEip6963();
+  console.log("[MockWallet] Injected " + cfg.name + " at " + cfg.address + " (EIP-6963 + legacy)");
+
+  function toHex(num: number) {
     return "0x" + num.toString(16);
-  }
-
-  function fakeHash(prefix) {
-    return "0x" + prefix.repeat(32);
-  }
-
-  function fakeSignature(prefix) {
-    return "0x" + prefix.repeat(65);
-  }
-
-  // Build an SVG icon as data URI
-  const WALLET_ICON = "data:image/svg+xml;base64," + btoa(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect fill="#6366f1" width="32" height="32" rx="6"/></svg>'
-  );
-
-  // A signing operation for another account: real wallets never silently sign with the wrong
-  // one — they run a switch flow (Ambire) or reject (MetaMask 4100 / Rabby -32602).
-  function requireAuthorized(addr) {
-    if (!addr || addr.toLowerCase() === currentAddress.toLowerCase()) return;
-    console.log("[MockWallet] mismatched from " + addr + " -> " + MISMATCHED_FROM);
-    if (MISMATCHED_FROM === "switch") {
-      provider._switchAccount(addr);
-      return;
-    }
-    if (MISMATCHED_FROM === "deny-switch") {
-      throw { code: 4001, message: "User rejected the request." };
-    }
-    throw { code: 4100, message: "The requested account and/or method has not been authorized by the user." };
   }
 
   // EIP-2255 permission object for the currently permitted account.
@@ -123,185 +124,212 @@ export function getMockProviderScript(
     }];
   }
 
-  const handlers = {
-    eth_requestAccounts: async () => {
-      if (!permitted) {
-        // "The connect window opens": the user picks RECONNECT_TO and reconnects.
-        permitted = true;
-        provider._switchAccount(RECONNECT_TO);
-      }
-      console.log("[MockWallet] eth_requestAccounts -> " + currentAddress);
-      return [currentAddress];
-    },
-    eth_accounts: async () => {
-      const accounts = permitted ? [currentAddress] : [];
-      console.log("[MockWallet] eth_accounts -> " + JSON.stringify(accounts));
-      return accounts;
-    },
-    wallet_requestPermissions: async (params) => {
-      provider._permissionRequestCount++;
-      console.log("[MockWallet] wallet_requestPermissions:", JSON.stringify(params));
-      if (REQUEST_PERMISSIONS === null) {
-        // Legacy default: behave like a wallet without the method, minus a proper error code.
-        throw new Error("Method not supported: wallet_requestPermissions");
-      }
-      if (REQUEST_PERMISSIONS === "silent") {
-        // The Ambire/Rabby behavior: resolve from existing state, never show UI.
+  /** Returns the handlers for connecting and for account and permission changes. */
+  function accountHandlers(): Handlers {
+    const prompt = cfg.requestPermissions;
+    return {
+      eth_requestAccounts: async () => {
+        if (!permitted) {
+          // "The connect window opens": the user picks cfg.reconnectTo and reconnects.
+          permitted = true;
+          provider._switchAccount(cfg.reconnectTo);
+        }
+        console.log("[MockWallet] eth_requestAccounts -> " + currentAddress);
+        return [currentAddress];
+      },
+      eth_accounts: async () => {
+        const accounts = permitted ? [currentAddress] : [];
+        console.log("[MockWallet] eth_accounts -> " + JSON.stringify(accounts));
+        return accounts;
+      },
+      wallet_requestPermissions: async (params) => {
+        provider._permissionRequestCount++;
+        console.log("[MockWallet] wallet_requestPermissions:", JSON.stringify(params));
+        if (prompt === null) {
+          // Legacy default: behave like a wallet without the method, minus a proper error code.
+          throw new Error("Method not supported: wallet_requestPermissions");
+        }
+        if (prompt === "silent") {
+          // The Ambire/Rabby behavior: resolve from existing state, never show UI.
+          return grantedPermissions();
+        }
+        if (prompt === "reject") {
+          throw { code: 4001, message: "User rejected the request." };
+        }
+        if (prompt === "unsupported") {
+          throw { code: -32601, message: "Method not found" };
+        }
+        if (prompt.manual) {
+          // Hang until the test approves: window.ethereum._approvePermissions().
+          return new Promise((resolve) => {
+            provider._approvePermissions = () => {
+              provider._switchAccount(prompt.switchTo);
+              resolve(grantedPermissions());
+            };
+          });
+        }
+        // Emit accountsChanged synchronously BEFORE resolving — MetaMask's ordering — so both
+        // resume paths (listener + promise) fire and the page's single-resume guard is exercised.
+        provider._switchAccount(prompt.switchTo);
         return grantedPermissions();
-      }
-      if (REQUEST_PERMISSIONS === "reject") {
-        throw { code: 4001, message: "User rejected the request." };
-      }
-      if (REQUEST_PERMISSIONS === "unsupported") {
-        throw { code: -32601, message: "Method not found" };
-      }
-      if (REQUEST_PERMISSIONS.manual) {
-        // Hang until the test approves: window.ethereum._approvePermissions().
-        return new Promise((resolve) => {
-          provider._approvePermissions = () => {
-            provider._switchAccount(REQUEST_PERMISSIONS.switchTo);
-            resolve(grantedPermissions());
-          };
-        });
-      }
-      // Emit accountsChanged synchronously BEFORE resolving — MetaMask's ordering — so both
-      // resume paths (listener + promise) fire and the page's single-resume guard is exercised.
-      provider._switchAccount(REQUEST_PERMISSIONS.switchTo);
-      return grantedPermissions();
-    },
-    wallet_revokePermissions: async (params) => {
-      provider._revokeCount++;
-      console.log("[MockWallet] wallet_revokePermissions:", JSON.stringify(params));
-      if (!RECONNECT_TO) throw { code: -32601, message: "Method not found" };
-      permitted = false;
-      const cbs = provider._listeners?.accountsChanged ?? [];
-      for (const cb of [...cbs]) cb([]);
-      return null;
-    },
-    eth_chainId: async () => {
-      const hex = toHex(TEST_CHAIN_ID);
-      console.log("[MockWallet] eth_chainId -> " + hex);
-      return hex;
-    },
-    wallet_switchEthereumChain: async (params) => {
-      console.log("[MockWallet] wallet_switchEthereumChain:", params);
-      return null;
-    },
-    wallet_addEthereumChain: async (params) => {
-      console.log("[MockWallet] wallet_addEthereumChain:", params);
-      return null;
-    },
-    eth_sendTransaction: async (params) => {
-      const tx = params[0];
-      console.log("[MockWallet] eth_sendTransaction:", tx);
-      requireAuthorized(tx.from);
-      provider._sendTxCount++;
-      const hash = fakeHash("ab");
-      return hash;
-    },
-    personal_sign: async (params) => {
-      console.log("[MockWallet] personal_sign:", params);
-      requireAuthorized(params[1]);
-      const sig = fakeSignature("cd");
-      return sig;
-    },
-    eth_signTypedData_v4: async (params) => {
-      console.log("[MockWallet] eth_signTypedData_v4:", params);
-      requireAuthorized(params[0]);
-      const sig = fakeSignature("ef");
-      return sig;
-    },
-    eth_getBalance: async () => "0x8AC7230489E80000",
-    eth_estimateGas: async () => "0x5208",
-    eth_gasPrice: async () => "0x3B9ACA00",
-    net_version: async () => String(TEST_CHAIN_ID),
-  };
+      },
+      wallet_revokePermissions: async (params) => {
+        provider._revokeCount++;
+        console.log("[MockWallet] wallet_revokePermissions:", JSON.stringify(params));
+        if (!cfg.reconnectTo) throw { code: -32601, message: "Method not found" };
+        permitted = false;
+        provider._emit("accountsChanged", []);
+        return null;
+      },
+    };
+  }
 
-  // Build the EIP-1193 provider object
-  const provider = {
-    _isMockProvider: true,
-    _sendTxCount: 0,
-    _permissionRequestCount: 0,
-    _revokeCount: 0,
-    selectedAddress: TEST_ADDRESS,
-    chainId: toHex(TEST_CHAIN_ID),
-    networkVersion: String(TEST_CHAIN_ID),
+  /** Returns the handlers for reading, switching and adding networks. */
+  function chainHandlers(): Handlers {
+    const known = cfg.knownChains;
+    return {
+      eth_chainId: async () => {
+        const hex = toHex(currentChainId);
+        console.log("[MockWallet] eth_chainId -> " + hex);
+        return hex;
+      },
+      wallet_switchEthereumChain: async (params) => {
+        console.log("[MockWallet] wallet_switchEthereumChain:", params);
+        if (known) {
+          const id = parseInt(params[0].chainId, 16);
+          if (!known.includes(id)) throw { code: 4902, message: "Unrecognized chain ID " + params[0].chainId };
+          setChain(id);
+        }
+        return null;
+      },
+      wallet_addEthereumChain: async (params) => {
+        console.log("[MockWallet] wallet_addEthereumChain:", params);
+        if (known) {
+          const id = parseInt(params[0].chainId, 16);
+          provider._addedChains.push(params[0]);
+          known.push(id);
+          setChain(id);
+        }
+        return null;
+      },
+    };
+  }
 
-    // Test hook: switch the selected account and emit accountsChanged, like a user switching
-    // in the wallet UI.
-    _switchAccount: (addr) => {
-      currentAddress = addr;
-      provider.selectedAddress = addr;
-      const cbs = provider._listeners?.accountsChanged ?? [];
-      for (const cb of [...cbs]) cb([addr]);
-    },
+  /** Makes `id` the active chain and announces it as EIP-1193 `chainChanged`, as wallets do. */
+  function setChain(id: number) {
+    if (id === currentChainId) return;
+    currentChainId = id;
+    provider._emit("chainChanged", toHex(id));
+  }
 
-    request: async ({ method, params }) => {
-      console.log("[MockWallet] request:", method);
-      const handler = handlers[method];
-      if (handler) {
+  /** Returns the handlers that sign or send, with canned hashes and signatures. */
+  function signingHandlers(): Handlers {
+    return {
+      eth_sendTransaction: async (params) => {
+        const tx = params[0];
+        console.log("[MockWallet] eth_sendTransaction:", tx);
+        requireAuthorized(tx.from);
+        provider._sendTxCount++;
+        return "0x" + "ab".repeat(32);
+      },
+      personal_sign: async (params) => {
+        console.log("[MockWallet] personal_sign:", params);
+        requireAuthorized(params[1]);
+        provider._signedMessages.push(params[0]);
+        return "0x" + "cd".repeat(65);
+      },
+      eth_signTypedData_v4: async (params) => {
+        console.log("[MockWallet] eth_signTypedData_v4:", params);
+        requireAuthorized(params[0]);
+        return "0x" + "ef".repeat(65);
+      },
+    };
+  }
+
+  // A signing operation for another account: real wallets never silently sign with the wrong
+  // one — they run a switch flow (Ambire) or reject (MetaMask 4100 / Rabby -32602).
+  function requireAuthorized(addr: string | undefined) {
+    if (!addr || addr.toLowerCase() === currentAddress.toLowerCase()) return;
+    console.log("[MockWallet] mismatched from " + addr + " -> " + cfg.mismatchedFrom);
+    if (cfg.mismatchedFrom === "switch") {
+      provider._switchAccount(addr);
+      return;
+    }
+    if (cfg.mismatchedFrom === "deny-switch") {
+      throw { code: 4001, message: "User rejected the request." };
+    }
+    throw { code: 4100, message: "The requested account and/or method has not been authorized by the user." };
+  }
+
+  /** Returns an EIP-1193 provider answering from `handlers`, plus the `_`-prefixed test hooks. */
+  function makeProvider(handlers: Handlers): any {
+    const listeners: Record<string, Listener[]> = {};
+    const p: any = {
+      _isMockProvider: true,
+      _sendTxCount: 0,
+      _permissionRequestCount: 0,
+      _revokeCount: 0,
+      _addedChains: [],
+      // personal_sign payloads, as the hex the page sent.
+      _signedMessages: [],
+      selectedAddress: cfg.address,
+      chainId: toHex(cfg.chainId),
+      networkVersion: String(cfg.chainId),
+
+      // Test hook: switch the selected account and emit accountsChanged, like a user switching
+      // in the wallet UI.
+      _switchAccount: (addr: string) => {
+        currentAddress = addr;
+        p.selectedAddress = addr;
+        p._emit("accountsChanged", [addr]);
+      },
+
+      request: async ({ method, params }: { method: string; params?: any[] }) => {
+        console.log("[MockWallet] request:", method);
+        const handler = handlers[method];
+        if (!handler) {
+          console.warn("[MockWallet] Unhandled:", method);
+          throw new Error("Method not supported: " + method);
+        }
         try {
           return await handler(params || []);
         } catch (err) {
           console.error("[MockWallet] Error:", method, err);
           throw err;
         }
-      }
-      console.warn("[MockWallet] Unhandled:", method);
-      throw new Error("Method not supported: " + method);
-    },
+      },
 
-    on: (event, cb) => {
-      if (!provider._listeners) provider._listeners = {};
-      if (!provider._listeners[event]) provider._listeners[event] = [];
-      provider._listeners[event].push(cb);
-    },
+      on: (event: string, cb: Listener) => {
+        (listeners[event] ??= []).push(cb);
+      },
+      removeListener: (event: string, cb: Listener) => {
+        const idx = listeners[event]?.indexOf(cb) ?? -1;
+        if (idx !== -1) listeners[event].splice(idx, 1);
+      },
+      // Copies the list first: a listener may unsubscribe itself while being called.
+      _emit: (event: string, ...args: unknown[]) => {
+        for (const cb of [...(listeners[event] ?? [])]) cb(...args);
+      },
 
-    removeListener: (event, cb) => {
-      if (provider._listeners?.[event]) {
-        const idx = provider._listeners[event].indexOf(cb);
-        if (idx !== -1) provider._listeners[event].splice(idx, 1);
-      }
-    },
-
-    _listeners: {},
-
-    enable: async () => [currentAddress],
-  };
-
-  // Legacy fallback — set window.ethereum (no isMetaMask flag so we can
-  // verify the name comes from EIP-6963, not from the legacy detection).
-  window.ethereum = provider;
-
-  // --- EIP-6963 wallet announcement ---
-  const providerDetail = Object.freeze({
-    info: Object.freeze({
-      uuid: crypto.randomUUID(),
-      name: WALLET_NAME,
-      icon: WALLET_ICON,
-      rdns: WALLET_RDNS,
-    }),
-    provider: provider,
-  });
-
-  function announceProvider() {
-    window.dispatchEvent(
-      new CustomEvent("eip6963:announceProvider", {
-        detail: providerDetail,
-      })
-    );
+      enable: async () => [currentAddress],
+    };
+    return p;
   }
 
-  // Announce immediately so any store already listening picks it up
-  announceProvider();
-
-  // Re-announce whenever a dapp requests providers
-  window.addEventListener("eip6963:requestProvider", () => {
-    console.log("[MockWallet] Received eip6963:requestProvider, re-announcing...");
-    announceProvider();
-  });
-
-  console.log("[MockWallet] Injected " + WALLET_NAME + " at " + TEST_ADDRESS + " (EIP-6963 + legacy)");
-})();
-`;
+  /** Announces the provider now and again on every EIP-6963 request from the page. */
+  function announceOverEip6963() {
+    const icon = "data:image/svg+xml;base64," + btoa(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect fill="#6366f1" width="32" height="32" rx="6"/></svg>'
+    );
+    const detail = Object.freeze({
+      info: Object.freeze({ uuid: crypto.randomUUID(), name: cfg.name, icon, rdns: cfg.rdns }),
+      provider,
+    });
+    const announce = () => window.dispatchEvent(new CustomEvent("eip6963:announceProvider", { detail }));
+    announce();
+    window.addEventListener("eip6963:requestProvider", () => {
+      console.log("[MockWallet] Received eip6963:requestProvider, re-announcing...");
+      announce();
+    });
+  }
 }

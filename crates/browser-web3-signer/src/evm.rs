@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use browser_web3_signer_core::{BindPort, Url};
 use browser_web3_signer_evm::{
-    Address, CallData, ChainId, ConnectParams, EvmRequest, EvmSigner, SendTransactionParams,
-    Signature, TxHash, TypedData, Wei, config,
+    Address, Bytes, CallData, ChainId, ConnectParams, EvmRequest, EvmSigner, SendTransactionParams,
+    SignableMessage, Signature, TxHash, TypedData, Wei, config,
 };
 use clap::Subcommand;
 use serde_json::json;
@@ -60,10 +60,14 @@ pub(crate) enum EvmCommand {
         max_priority_fee_per_gas: Option<Wei>,
     },
     /// `personal_sign` an arbitrary message.
+    #[command(group = clap::ArgGroup::new("payload").required(true))]
     SignMessage {
-        /// The message to sign.
-        #[arg(long)]
-        message: String,
+        /// The message to sign, as text (signed as its UTF-8 bytes).
+        #[arg(long, group = "payload")]
+        message: Option<String>,
+        /// The message to sign, as `0x`-hex bytes signed unchanged (e.g. a Safe message hash).
+        #[arg(long, group = "payload")]
+        raw: Option<Bytes>,
         /// Address to sign with (defaults to the connected account).
         #[arg(long)]
         address: Option<Address>,
@@ -242,9 +246,16 @@ pub(crate) async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
         }
         EvmCommand::SignMessage {
             message,
+            raw,
             address,
             chain,
         } => {
+            // clap's required "payload" group guarantees exactly one of the two.
+            let message: SignableMessage = match (message, raw) {
+                (Some(text), _) => text.into(),
+                (None, Some(raw)) => raw.into(),
+                (None, None) => unreachable!("clap requires --message or --raw"),
+            };
             let req = EvmRequest::sign_message(message, address, Some(cli.chain_or_default(chain)));
             cli.sign(req).await
         }

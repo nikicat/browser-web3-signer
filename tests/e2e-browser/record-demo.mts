@@ -8,45 +8,30 @@
  */
 
 import { chromium, type Page } from "@playwright/test";
+import { addFakeCursor, CURSOR_DOT } from "./fixtures/fake-cursor.mts";
 import { makeHarness } from "./fixtures/harness.mts";
-import { getMockProviderScript, TEST_ADDRESS, TEST_CHAIN_ID } from "./evm/fixtures/mock-wallet.mts";
-
-const CURSOR_SCRIPT = `
-window.addEventListener("DOMContentLoaded", () => {
-  const dot = document.createElement("div");
-  dot.style.cssText =
-    "position:fixed;z-index:99999;width:18px;height:18px;border-radius:50%;" +
-    "background:rgba(30,30,30,.55);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);" +
-    "pointer-events:none;transform:translate(-50%,-50%);left:-40px;top:-40px;" +
-    "transition:width .12s,height .12s";
-  document.body.appendChild(dot);
-  window.addEventListener("mousemove", (e) => {
-    dot.style.left = e.clientX + "px";
-    dot.style.top = e.clientY + "px";
-  }, true);
-  window.addEventListener("mousedown", () => { dot.style.width = "26px"; dot.style.height = "26px"; }, true);
-  window.addEventListener("mouseup", () => { dot.style.width = "18px"; dot.style.height = "18px"; }, true);
-});
-`;
+import { addMockWallet, TEST_CHAIN_ID } from "./evm/fixtures/mock-wallet.mts";
 
 // The mock wallet returns a recognizably fake tx hash (0xabab…); rewrite it to a
 // realistic-looking one so the demo's success screen reads plausibly.
 const DEMO_TX_HASH = "0x8f3c2a5b9e1d47c6a0f5b82d4e91c37a6d508b4f2c19e7d3a85f60b1c4d92e7a";
-const HASH_PATCH_SCRIPT = `
-(function () {
-  const patch = (p) => {
+
+// Runs in the page: Playwright ships it as source, so it may use only its argument and
+// browser globals.
+/** Makes every provider the page sees answer `eth_sendTransaction` with `txHash`. */
+function installTxHashPatch(txHash: string) {
+  const patch = (p: any) => {
     if (!p || p.__demoPatched) return;
     p.__demoPatched = true;
     const orig = p.request.bind(p);
-    p.request = async (args) => {
+    p.request = async (args: { method: string }) => {
       const r = await orig(args);
-      return args && args.method === "eth_sendTransaction" ? "${DEMO_TX_HASH}" : r;
+      return args && args.method === "eth_sendTransaction" ? txHash : r;
     };
   };
-  patch(window.ethereum);
-  window.addEventListener("eip6963:announceProvider", (e) => patch(e.detail && e.detail.provider));
-})();
-`;
+  patch((window as any).ethereum);
+  window.addEventListener("eip6963:announceProvider", (e) => patch((e as CustomEvent).detail?.provider));
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -68,11 +53,9 @@ const ctx = await browser.newContext({
   viewport: { width: 900, height: 620 },
   recordVideo: { dir: "demo-video", size: { width: 900, height: 620 } },
 });
-await ctx.addInitScript(
-  getMockProviderScript(TEST_ADDRESS, TEST_CHAIN_ID, { name: "Demo Wallet", rdns: "dev.demo.wallet" }),
-);
-await ctx.addInitScript(HASH_PATCH_SCRIPT);
-await ctx.addInitScript(CURSOR_SCRIPT);
+await addMockWallet(ctx, { name: "Demo Wallet", rdns: "dev.demo.wallet" });
+await ctx.addInitScript(installTxHashPatch, DEMO_TX_HASH);
+await addFakeCursor(ctx, CURSOR_DOT);
 const page = await ctx.newPage();
 const video = page.video();
 

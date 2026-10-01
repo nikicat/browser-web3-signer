@@ -20,6 +20,11 @@ import { connectWalletViem } from "../src/viem-account.ts";
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_WALLET = resolve(TEST_DIR, "fake-wallet.mjs");
 const FAKE_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
+// Canned signatures fake-wallet.mjs returns for a text and a `{ raw }` message.
+const TEXT_SIGNATURE = "0x" + "cd".repeat(65);
+const RAW_SIGNATURE = "0x" + "ee".repeat(65);
+// A 32-byte hash that is not valid UTF-8, as a Safe message hash typically is.
+const HASH = `0x${"ff".repeat(32)}` as const;
 
 // Drive the bridge to launch our fake wallet instead of a real browser. The bridge runs the
 // browser as `<browser> <url>` with no shell, so it must be a single executable — hence the
@@ -57,6 +62,10 @@ describe("WalletSignerClient", () => {
     assert.match(sig, /^0x[a-f0-9]+$/i);
   });
 
+  test("signMessage sends a { raw } message as bytes", async () => {
+    assert.equal(await client.signMessage({ message: { raw: HASH }, chainId: 1 }), RAW_SIGNATURE);
+  });
+
   test("signTypedData returns a signature", async () => {
     const sig = await client.signTypedData({
       domain: { name: "Test App", version: "1", chainId: 1 },
@@ -89,6 +98,20 @@ describe("viem integration", () => {
     // The hybrid account signs directly (the wallet path), independent of any wallet client.
     const sig = await account.signMessage({ message: "via viem" });
     assert.match(sig, /^0x[a-f0-9]+$/i);
+  });
+
+  test("viem account signs { raw } hex and byte messages as bytes", async () => {
+    const { account } = await connectWalletViem(client, { address: FAKE_ADDRESS, chainId: 1 });
+    assert.equal(await account.signMessage({ message: { raw: HASH } }), RAW_SIGNATURE);
+    assert.equal(await account.signMessage({ message: { raw: new Uint8Array(32).fill(0xff) } }), RAW_SIGNATURE);
+    assert.equal(await account.signMessage({ message: "text" }), TEXT_SIGNATURE);
+  });
+
+  test("transport's personal_sign keeps text as text and other bytes raw", async () => {
+    const { transport } = await connectWalletViem(client, { address: FAKE_ADDRESS, chainId: 1 });
+    const walletClient = createWalletClient({ account: FAKE_ADDRESS, transport });
+    assert.equal(await walletClient.signMessage({ account: FAKE_ADDRESS, message: "hello" }), TEXT_SIGNATURE);
+    assert.equal(await walletClient.signMessage({ account: FAKE_ADDRESS, message: { raw: HASH } }), RAW_SIGNATURE);
   });
 
   test("wallet client routes sendTransaction through the transport", async () => {

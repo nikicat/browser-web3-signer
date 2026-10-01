@@ -3,6 +3,7 @@
 *.zip
 *.log
 *.mp4
+*.gif
 timeline.json
 /ambire-storage.json
 remotion/node_modules/

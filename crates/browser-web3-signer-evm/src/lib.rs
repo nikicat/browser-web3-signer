@@ -10,10 +10,12 @@ pub mod types;
 
 // Core types that appear in this crate's public API, so depending on
 // `browser-web3-signer-evm` alone is enough to drive a signer.
+/// The byte string a [`SignableMessage::Raw`] holds.
+pub use alloy::primitives::Bytes;
 pub use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Prepared, SignerError, Url};
 pub use config::{CHAINS, ChainConfig, DEFAULT_CHAIN_ID, chain_config, default_chain_id, port};
 pub use domain::{
     Address, CallData, ChainId, Decimals, Signature, Symbol, TokenAmount, TxHash, Wei,
 };
 pub use signer::{EvmSigner, WEB_UI};
-pub use types::{ConnectParams, EvmRequest, SendTransactionParams, TypedData};
+pub use types::{ConnectParams, EvmRequest, SendTransactionParams, SignableMessage, TypedData};

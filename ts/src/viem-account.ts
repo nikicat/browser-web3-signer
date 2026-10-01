@@ -6,6 +6,7 @@
  * (which forwards to the wallet); `signMessage` / `signTypedData` are also available directly.
  */
 
+import { bytesToHex } from "viem";
 import type { Address, CustomSource, CustomTransport, Hex } from "viem";
 
 import type { SignTypedDataParams, WalletSignerClient } from "./client.ts";
@@ -37,13 +38,11 @@ export async function connectWalletViem(
   const address = (options?.address ?? (await signer.connectWallet())) as Address;
 
   const signMessage: CustomSource["signMessage"] = async ({ message }) => {
-    let msg: string;
-    if (typeof message === "string") {
-      msg = message;
-    } else {
-      msg = typeof message.raw === "string" ? message.raw : new TextDecoder().decode(message.raw);
-    }
-    return (await signer.signMessage({ message: msg, address })) as Hex;
+    const signable =
+      typeof message === "string"
+        ? message
+        : { raw: typeof message.raw === "string" ? message.raw : bytesToHex(message.raw) };
+    return (await signer.signMessage({ message: signable, address })) as Hex;
   };
 
   // viem's CustomSource["signTypedData"] uses heavily generic conditional types that TS can't

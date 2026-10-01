@@ -62,9 +62,15 @@ export interface SendTransactionParams {
   maxPriorityFeePerGas?: string;
 }
 
+/**
+ * What `personal_sign` signs, in viem's shape: text (signed as its UTF-8 bytes), or `{ raw }`
+ * for exact bytes such as a hash a Safe expects signed as-is.
+ */
+export type SignableMessage = string | { raw: `0x${string}` };
+
 /** Parameters for {@link WalletSignerClient.signMessage}. */
 export interface SignMessageParams {
-  message: string;
+  message: SignableMessage;
   address?: string;
   chainId?: number;
 }

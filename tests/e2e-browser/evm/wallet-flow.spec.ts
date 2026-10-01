@@ -8,7 +8,7 @@
 import { type BrowserContext, expect, test } from "@playwright/test";
 import { createTestRequest, getBaseUrl, getTestResult, startServer, stopServer } from "./fixtures/test-server.mts";
 import {
-  getMockProviderScript,
+  addMockWallet,
   type MockWalletOptions,
   TEST_ADDRESS,
   TEST_CHAIN_ID,
@@ -28,7 +28,7 @@ async function walletContext(
   options?: MockWalletOptions,
 ): Promise<BrowserContext> {
   const ctx = await browser.newContext();
-  await ctx.addInitScript(getMockProviderScript(TEST_ADDRESS, TEST_CHAIN_ID, options));
+  await addMockWallet(ctx, options);
   return ctx;
 }
 
@@ -60,7 +60,7 @@ async function patchWindowClose(page: import("@playwright/test").Page) {
 
 test.describe("Wallet Connection", () => {
   test("connects successfully with mock wallet", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("connect", { chainId: TEST_CHAIN_ID });
@@ -77,22 +77,18 @@ test.describe("Wallet Connection", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(result?.result?.toLowerCase()).toBe(TEST_ADDRESS.toLowerCase());
-
-    await ctx.close();
   });
 
   test("shows not-found for expired request", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     await page.goto(`${getBaseUrl()}/connect/00000000-0000-0000-0000-000000000000`);
     await expect(page.getByText("Request Not Found")).toBeVisible();
-
-    await ctx.close();
   });
 
   test("shows error when no wallet is detected", async ({ browser }) => {
-    const ctx = await browser.newContext(); // no mock wallet
+    await using ctx = await browser.newContext(); // no mock wallet
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("connect", { chainId: TEST_CHAIN_ID });
@@ -100,12 +96,10 @@ test.describe("Wallet Connection", () => {
 
     await expect(page.getByRole("heading", { name: "Connect Wallet" })).toBeVisible();
     await expect(page.locator("#connect-no-wallet")).toBeVisible();
-
-    await ctx.close();
   });
 
   test("connects with matching required address", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("connect", {
@@ -126,12 +120,10 @@ test.describe("Wallet Connection", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(result?.result?.toLowerCase()).toBe(TEST_ADDRESS.toLowerCase());
-
-    await ctx.close();
   });
 
   test("shows wrong address when required address does not match", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const wrongAddress = "0x0000000000000000000000000000000000000001";
@@ -149,12 +141,10 @@ test.describe("Wallet Connection", () => {
     // Verify the request is still pending (not completed with error)
     const result = await getTestResult(id);
     expect(result?.pending).toBe(true);
-
-    await ctx.close();
   });
 
   test("cancels wallet connection", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("connect", { chainId: TEST_CHAIN_ID });
@@ -169,12 +159,10 @@ test.describe("Wallet Connection", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("cancelled");
-
-    await ctx.close();
   });
 
   test("auto-completes when wallet switches to correct address", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const wrongAddress = "0x0000000000000000000000000000000000000001";
@@ -188,22 +176,153 @@ test.describe("Wallet Connection", () => {
     await expect(page.locator("#connect-wrong")).toBeVisible({ timeout: 10000 });
 
     // Simulate wallet emitting accountsChanged with the correct address
-    await page.evaluate((addr) => {
-      const provider = (window as any).ethereum;
-      if (provider?._listeners?.accountsChanged) {
-        for (const cb of provider._listeners.accountsChanged) {
-          cb([addr]);
-        }
-      }
-    }, wrongAddress);
+    await page.evaluate((addr) => (window as any).ethereum._emit("accountsChanged", [addr]), wrongAddress);
 
     await expect(page.getByText("Connected!")).toBeVisible({ timeout: 10000 });
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(result?.result?.toLowerCase()).toBe(wrongAddress.toLowerCase());
+  });
+});
 
-    await ctx.close();
+// --- Adding Unknown Chains ---
+
+test.describe("Adding Unknown Chains", () => {
+  const REGISTRY = "https://chainid.network/chains_mini.json";
+  // Gnosis: in no built-in table, so only the registry can describe it.
+  const GNOSIS = {
+    name: "Gnosis",
+    chainId: 100,
+    nativeCurrency: { name: "xDAI", symbol: "XDAI", decimals: 18 },
+    rpc: ["wss://rpc.gnosischain.com/wss", "https://gnosis.infura.io/v3/${INFURA_API_KEY}", "https://rpc.gnosischain.com"],
+    explorers: [{ name: "gnosisscan", url: "https://gnosisscan.io" }],
+  };
+
+  /** Returns a wallet context whose wallet has a network only for chain 1. */
+  function chain1Wallet(browser: import("@playwright/test").Browser) {
+    return walletContext(browser, { knownChains: [TEST_CHAIN_ID] });
+  }
+
+  /** Returns a page that opened a connect request for `fields` and clicked Connect. */
+  async function connectWithRegistry(
+    ctx: BrowserContext,
+    registry: Parameters<BrowserContext["route"]>[1],
+    fields: Record<string, unknown>,
+  ) {
+    await ctx.route(REGISTRY, registry);
+    const page = await ctx.newPage();
+    const { id } = await createTestRequest("connect", fields);
+    await page.goto(`${getBaseUrl()}/connect/${id}`);
+    await page.getByRole("button", { name: "Connect" }).click();
+    return page;
+  }
+
+  test("adds a chain the wallet lacks from the chain registry", async ({ browser }) => {
+    await using ctx = await chain1Wallet(browser);
+    const page = await connectWithRegistry(ctx, (route) => route.fulfill({ json: [GNOSIS] }), { chainId: 100 });
+    await expect(page.getByText("Connected!")).toBeVisible({ timeout: 10000 });
+
+    // Only the plain https endpoint survives; currency and explorer come from the registry.
+    expect(await page.evaluate(() => (window as any).ethereum._addedChains)).toEqual([
+      {
+        chainId: "0x64",
+        chainName: "Gnosis",
+        nativeCurrency: { name: "xDAI", symbol: "XDAI", decimals: 18 },
+        rpcUrls: ["https://rpc.gnosischain.com"],
+        blockExplorerUrls: ["https://gnosisscan.io"],
+      },
+    ]);
+  });
+
+  test("links to Chainlist when the registry is unreachable", async ({ browser }) => {
+    await using ctx = await chain1Wallet(browser);
+    const page = await connectWithRegistry(ctx, (route) => route.abort(), { chainId: 100 });
+
+    await expect(page.locator("#connect-err")).toBeVisible({ timeout: 10000 });
+    const link = page.getByRole("link", { name: "Add this network via Chainlist" });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute("href", "https://chainlist.org/chain/100");
+  });
+
+  test("downloads the registry again on Try Again after a failure", async ({ browser }) => {
+    let registryHits = 0;
+    await using ctx = await chain1Wallet(browser);
+    const page = await connectWithRegistry(
+      ctx,
+      (route) => (++registryHits === 1 ? route.abort() : route.fulfill({ json: [GNOSIS] })),
+      { chainId: 100 },
+    );
+    await expect(page.locator("#connect-err")).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole("button", { name: "Try Again" }).click();
+    await expect(page.getByText("Connected!")).toBeVisible({ timeout: 10000 });
+    expect(registryHits).toBe(2);
+  });
+
+  test("clears the error once the wallet reaches the requested chain", async ({ browser }) => {
+    await using ctx = await chain1Wallet(browser);
+    await ctx.route(REGISTRY, (route) => route.abort());
+    const page = await ctx.newPage();
+    const { id } = await createTestRequest("sign_message", { message: "Hello, Gnosis!", chainId: 100 });
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await page.getByRole("button", { name: "Sign" }).click();
+    await expect(page.locator("#msg-err")).toBeVisible({ timeout: 10000 });
+
+    // The user adds the network in the wallet itself, which then switches to it.
+    await page.evaluate((chain) => (window as any).ethereum.request({ method: "wallet_addEthereumChain", params: [chain] }), {
+      chainId: "0x64",
+      chainName: "Gnosis",
+      nativeCurrency: GNOSIS.nativeCurrency,
+      rpcUrls: ["https://rpc.gnosischain.com"],
+    });
+    await expect(page.locator("#msg-err")).toBeHidden();
+    await expect(page.getByText("Hello, Gnosis!")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign" })).toBeEnabled();
+  });
+
+  test("prefers the request's rpcUrl over the built-in chain entry", async ({ browser }) => {
+    let registryHits = 0;
+    // Base (8453) is built in, but a caller pointing at its own node must win.
+    await using ctx = await chain1Wallet(browser);
+    const page = await connectWithRegistry(
+      ctx,
+      (route) => {
+        registryHits++;
+        return route.abort();
+      },
+      { chainId: 8453, rpcUrl: "http://127.0.0.1:8545/" },
+    );
+    await expect(page.getByText("Connected!")).toBeVisible({ timeout: 10000 });
+
+    const added = await page.evaluate(() => (window as any).ethereum._addedChains);
+    expect(added).toHaveLength(1);
+    expect(added[0].rpcUrls).toEqual(["http://127.0.0.1:8545/"]);
+    expect(added[0].chainName).toBe("Base");
+    expect(registryHits).toBe(0);
+  });
+});
+
+// --- Shared page helpers (app-core.js) ---
+
+test.describe("Core helpers", () => {
+  test("onceUntilFailure shares one load and retries after a failure", async ({ browser }) => {
+    await using ctx = await walletContext(browser);
+    const page = await ctx.newPage();
+    const { id } = await createTestRequest("connect", { chainId: TEST_CHAIN_ID });
+    await page.goto(`${getBaseUrl()}/connect/${id}`);
+
+    const outcome = await page.evaluate(async () => {
+      const { onceUntilFailure } = (window as any).WalletSignerCore;
+      let calls = 0;
+      const load = onceUntilFailure(() => (++calls === 1 ? Promise.reject(new Error("down")) : Promise.resolve(calls)));
+      const failed = await Promise.allSettled([load(), load()]);
+      const retried = await Promise.all([load(), load()]);
+      const cached = await load();
+      return { failed: failed.map((r) => r.status), retried, cached, calls };
+    });
+    // Concurrent callers share each attempt; the failure is retried once, the success kept.
+    expect(outcome).toEqual({ failed: ["rejected", "rejected"], retried: [2, 2], cached: 2, calls: 2 });
   });
 });
 
@@ -211,7 +330,7 @@ test.describe("Wallet Connection", () => {
 
 test.describe("Transaction Signing", () => {
   test("signs and sends transaction", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("send_transaction", {
@@ -232,12 +351,10 @@ test.describe("Transaction Signing", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(result?.result).toMatch(/^0x[a-f0-9]+$/i);
-
-    await ctx.close();
   });
 
   test("rejects transaction", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("send_transaction", {
@@ -256,8 +373,6 @@ test.describe("Transaction Signing", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("rejected");
-
-    await ctx.close();
   });
 });
 
@@ -284,7 +399,7 @@ test.describe("Account Change Prompt", () => {
   test("lets the wallet run its own switch-account flow (Ambire-style)", async ({ browser }) => {
     // The page submits the mismatched operation as-is; the wallet opens its switch-account
     // confirmation, switches, and continues the tx — no permissions prompt is ever needed.
-    const ctx = await walletContext(browser, { mismatchedFrom: "switch" });
+    await using ctx = await walletContext(browser, { mismatchedFrom: "switch" });
     const page = await ctx.newPage();
 
     const { id } = await mismatchedTxRequest();
@@ -302,14 +417,12 @@ test.describe("Account Change Prompt", () => {
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
-
-    await ctx.close();
   });
 
   test("shows the wrong-address panel without re-prompting when the switch window is denied", async ({ browser }) => {
     // A denied switch-account window is an explicit user rejection (4001): land on the panel,
     // but do NOT immediately open another prompt at the user — the button stays available.
-    const ctx = await walletContext(browser, {
+    await using ctx = await walletContext(browser, {
       mismatchedFrom: "deny-switch",
       requestPermissions: { switchTo: FROM_ADDRESS },
     });
@@ -325,12 +438,10 @@ test.describe("Account Change Prompt", () => {
 
     const result = await getTestResult(id);
     expect(result?.pending).toBe(true);
-
-    await ctx.close();
   });
 
   test("opens the prompt on mismatch and completes after approval", async ({ browser }) => {
-    const ctx = await walletContext(browser, { requestPermissions: { switchTo: FROM_ADDRESS } });
+    await using ctx = await walletContext(browser, { requestPermissions: { switchTo: FROM_ADDRESS } });
     const page = await ctx.newPage();
 
     const { id } = await mismatchedTxRequest();
@@ -350,12 +461,10 @@ test.describe("Account Change Prompt", () => {
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
-
-    await ctx.close();
   });
 
   test("stays on the wrong-address panel when the prompt is rejected", async ({ browser }) => {
-    const ctx = await walletContext(browser, { requestPermissions: "reject" });
+    await using ctx = await walletContext(browser, { requestPermissions: "reject" });
     const page = await ctx.newPage();
 
     const { id } = await mismatchedTxRequest();
@@ -372,12 +481,10 @@ test.describe("Account Change Prompt", () => {
 
     const result = await getTestResult(id);
     expect(result?.pending).toBe(true);
-
-    await ctx.close();
   });
 
   test("falls back to the passive account switch when the method is unsupported", async ({ browser }) => {
-    const ctx = await walletContext(browser, { requestPermissions: "unsupported" });
+    await using ctx = await walletContext(browser, { requestPermissions: "unsupported" });
     const page = await ctx.newPage();
 
     const { id } = await mismatchedTxRequest();
@@ -394,15 +501,13 @@ test.describe("Account Change Prompt", () => {
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
-
-    await ctx.close();
   });
 
   test("escalates to revoke + reconnect for wallets that resolve the prompt silently", async ({ browser }) => {
     // Ambire/Rabby/Brave answer wallet_requestPermissions from existing state without any UI;
     // the page must then revoke the permission and reconnect, which forces the wallet's connect
     // window (simulated here by eth_requestAccounts switching to `reconnectTo`).
-    const ctx = await walletContext(browser, {
+    await using ctx = await walletContext(browser, {
       requestPermissions: "silent",
       reconnectTo: FROM_ADDRESS,
     });
@@ -423,14 +528,12 @@ test.describe("Account Change Prompt", () => {
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
-
-    await ctx.close();
   });
 
   test("asks for a manual switch when the silent wallet also lacks revoke", async ({ browser }) => {
     // No reconnectTo → wallet_revokePermissions throws -32601: the wallet offers no
     // account-change UI at all, so the button disappears and the hint says to switch manually.
-    const ctx = await walletContext(browser, { requestPermissions: "silent" });
+    await using ctx = await walletContext(browser, { requestPermissions: "silent" });
     const page = await ctx.newPage();
 
     const { id } = await mismatchedTxRequest();
@@ -448,12 +551,10 @@ test.describe("Account Change Prompt", () => {
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
-
-    await ctx.close();
   });
 
   test("Change Account button re-opens the prompt", async ({ browser }) => {
-    const ctx = await walletContext(browser, { requestPermissions: "reject" });
+    await using ctx = await walletContext(browser, { requestPermissions: "reject" });
     const page = await ctx.newPage();
 
     const { id } = await mismatchedTxRequest();
@@ -469,12 +570,10 @@ test.describe("Account Change Prompt", () => {
 
     const result = await getTestResult(id);
     expect(result?.pending).toBe(true);
-
-    await ctx.close();
   });
 
   test("a late prompt approval after Reject never signs", async ({ browser }) => {
-    const ctx = await walletContext(browser, {
+    await using ctx = await walletContext(browser, {
       requestPermissions: { switchTo: FROM_ADDRESS, manual: true },
     });
     const page = await ctx.newPage();
@@ -501,8 +600,6 @@ test.describe("Account Change Prompt", () => {
     await page.evaluate(() => (window as any).ethereum._approvePermissions());
     await page.waitForTimeout(200);
     expect(await page.evaluate(() => (window as any).ethereum._sendTxCount)).toBe(0);
-
-    await ctx.close();
   });
 });
 
@@ -510,7 +607,7 @@ test.describe("Account Change Prompt", () => {
 
 test.describe("Message Signing", () => {
   test("signs a message", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("sign_message", {
@@ -528,12 +625,10 @@ test.describe("Message Signing", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(result?.result).toMatch(/^0x[a-f0-9]+$/i);
-
-    await ctx.close();
   });
 
   test("rejects message signing", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("sign_message", {
@@ -551,12 +646,26 @@ test.describe("Message Signing", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("rejected");
+  });
 
-    await ctx.close();
+  test("signs a { raw } message as its bytes, not its hex text", async ({ browser }) => {
+    await using ctx = await walletContext(browser);
+    const page = await ctx.newPage();
+    const hash = "0x" + "ff".repeat(32);
+    const { id } = await createTestRequest("sign_message", { message: { raw: hash }, chainId: TEST_CHAIN_ID });
+
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await expect(page.locator("#msg-label")).toHaveText("Raw bytes (hex)");
+    await expect(page.locator("#msg-text")).toHaveText(hash);
+    await page.getByRole("button", { name: "Sign" }).click();
+    await expect(page.getByText("Signed Successfully!")).toBeVisible({ timeout: 10000 });
+
+    expect(await page.evaluate(() => (window as any).ethereum._signedMessages)).toEqual([hash]);
+    expect((await getTestResult(id))?.success).toBe(true);
   });
 
   test("signs EIP-712 typed data", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("sign_typed_data", {
@@ -576,12 +685,10 @@ test.describe("Message Signing", () => {
 
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
-
-    await ctx.close();
   });
 
   test("rejects typed data signing", async ({ browser }) => {
-    const ctx = await walletContext(browser);
+    await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
     const { id } = await createTestRequest("sign_typed_data", {
@@ -602,7 +709,5 @@ test.describe("Message Signing", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(false);
     expect(result?.error).toContain("rejected");
-
-    await ctx.close();
   });
 });

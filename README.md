@@ -116,6 +116,7 @@ stdout.
 browser-web3-signer evm connect --chain 1
 browser-web3-signer evm send-transaction --to 0x… --value 1000000000000000 --chain 1
 browser-web3-signer evm sign-message --message "hello"
+browser-web3-signer evm sign-message --raw 0x…        # exact bytes, e.g. a Safe message hash
 browser-web3-signer evm sign-typed-data --file ./typed-data.json    # {domain,types,primaryType,message}
 ```
 
@@ -234,6 +235,7 @@ const signer = new WalletSignerClient("evm", { defaultChainId: 1 });
 const address = await signer.connectWallet();
 const hash = await signer.sendTransaction({ to: "0x…", value: "1000000000000000000" });
 const sig = await signer.signMessage({ message: "hello" });
+const rawSig = await signer.signMessage({ message: { raw: "0x…" } }); // exact bytes, as in viem
 
 // Or drive it through viem: a hybrid account + transport over the same signer.
 const { account, transport } = await connectWalletViem(signer);
