@@ -1,6 +1,6 @@
-# Release pipeline: merging a version-bump PR to master IS the release.
+# Release pipeline: merging a version-bump PR to main IS the release.
 #
-# Trigger: a push to master that touches Cargo.toml. Preflight reads the
+# Trigger: a push to main that touches Cargo.toml. Preflight reads the
 # [workspace.package] version; if the vX.Y.Z tag already exists (a Cargo.toml
 # change without a bump — dep updates etc.) everything is skipped. Otherwise, in order:
 #   preflight  assert version lockstep (Cargo.toml, internal dep pins, ts/package.json)
@@ -57,7 +57,7 @@ name: Release
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     paths: [Cargo.toml]
   workflow_dispatch:
     inputs:
