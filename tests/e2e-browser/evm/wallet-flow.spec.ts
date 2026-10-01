@@ -56,6 +56,18 @@ async function patchWindowClose(page: import("@playwright/test").Page) {
   });
 }
 
+// Anvil default account #2 — distinct from the mock's selected TEST_ADDRESS (account #0).
+const OTHER_ADDRESS = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
+
+function txRequest(extra: Record<string, unknown> = {}) {
+  return createTestRequest("send_transaction", {
+    to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    value: "1000000000000000000",
+    chainId: TEST_CHAIN_ID,
+    ...extra,
+  });
+}
+
 // --- Wallet Connection ---
 
 test.describe("Wallet Connection", () => {
@@ -333,11 +345,7 @@ test.describe("Transaction Signing", () => {
     await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
-    const { id } = await createTestRequest("send_transaction", {
-      to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-      value: "1000000000000000000",
-      chainId: TEST_CHAIN_ID,
-    });
+    const { id } = await txRequest();
 
     await page.goto(`${getBaseUrl()}/sign/${id}`);
     await expect(page.getByRole("heading", { name: "Send Transaction" })).toBeVisible();
@@ -357,11 +365,7 @@ test.describe("Transaction Signing", () => {
     await using ctx = await walletContext(browser);
     const page = await ctx.newPage();
 
-    const { id } = await createTestRequest("send_transaction", {
-      to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-      value: "1000000000000000000",
-      chainId: TEST_CHAIN_ID,
-    });
+    const { id } = await txRequest();
 
     await page.goto(`${getBaseUrl()}/sign/${id}`);
     await expect(page.getByRole("heading", { name: "Send Transaction" })).toBeVisible();
@@ -384,16 +388,8 @@ test.describe("Transaction Signing", () => {
 // answer to that prompt.
 
 test.describe("Account Change Prompt", () => {
-  // Anvil default account #2 — distinct from the mock's selected TEST_ADDRESS (account #0).
-  const FROM_ADDRESS = "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC";
-
   function mismatchedTxRequest() {
-    return createTestRequest("send_transaction", {
-      to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-      value: "1000000000000000000",
-      chainId: TEST_CHAIN_ID,
-      from: FROM_ADDRESS,
-    });
+    return txRequest({ from: OTHER_ADDRESS });
   }
 
   test("lets the wallet run its own switch-account flow (Ambire-style)", async ({ browser }) => {
@@ -424,7 +420,7 @@ test.describe("Account Change Prompt", () => {
     // but do NOT immediately open another prompt at the user — the button stays available.
     await using ctx = await walletContext(browser, {
       mismatchedFrom: "deny-switch",
-      requestPermissions: { switchTo: FROM_ADDRESS },
+      requestPermissions: { switchTo: OTHER_ADDRESS },
     });
     const page = await ctx.newPage();
 
@@ -441,7 +437,7 @@ test.describe("Account Change Prompt", () => {
   });
 
   test("opens the prompt on mismatch and completes after approval", async ({ browser }) => {
-    await using ctx = await walletContext(browser, { requestPermissions: { switchTo: FROM_ADDRESS } });
+    await using ctx = await walletContext(browser, { requestPermissions: { switchTo: OTHER_ADDRESS } });
     const page = await ctx.newPage();
 
     const { id } = await mismatchedTxRequest();
@@ -496,7 +492,7 @@ test.describe("Account Change Prompt", () => {
     await expect(page.locator("#tx-change-btn")).toBeHidden();
 
     // The user switches manually in the wallet UI; the accountsChanged listener resumes.
-    await page.evaluate((addr) => (window as any).ethereum._switchAccount(addr), FROM_ADDRESS);
+    await page.evaluate((addr) => (window as any).ethereum._switchAccount(addr), OTHER_ADDRESS);
     await expect(page.getByText("Transaction Sent!")).toBeVisible({ timeout: 10000 });
 
     const result = await getTestResult(id);
@@ -509,7 +505,7 @@ test.describe("Account Change Prompt", () => {
     // window (simulated here by eth_requestAccounts switching to `reconnectTo`).
     await using ctx = await walletContext(browser, {
       requestPermissions: "silent",
-      reconnectTo: FROM_ADDRESS,
+      reconnectTo: OTHER_ADDRESS,
     });
     const page = await ctx.newPage();
 
@@ -546,7 +542,7 @@ test.describe("Account Change Prompt", () => {
       "Switch to the correct account in your wallet to continue.",
     );
 
-    await page.evaluate((addr) => (window as any).ethereum._switchAccount(addr), FROM_ADDRESS);
+    await page.evaluate((addr) => (window as any).ethereum._switchAccount(addr), OTHER_ADDRESS);
     await expect(page.getByText("Transaction Sent!")).toBeVisible({ timeout: 10000 });
 
     const result = await getTestResult(id);
@@ -574,7 +570,7 @@ test.describe("Account Change Prompt", () => {
 
   test("a late prompt approval after Reject never signs", async ({ browser }) => {
     await using ctx = await walletContext(browser, {
-      requestPermissions: { switchTo: FROM_ADDRESS, manual: true },
+      requestPermissions: { switchTo: OTHER_ADDRESS, manual: true },
     });
     const page = await ctx.newPage();
 
@@ -600,6 +596,125 @@ test.describe("Account Change Prompt", () => {
     await page.evaluate(() => (window as any).ethereum._approvePermissions());
     await page.waitForTimeout(200);
     expect(await page.evaluate(() => (window as any).ethereum._sendTxCount)).toBe(0);
+  });
+});
+
+// --- Account Switch ---
+//
+// A request that doesn't pin its signer signs with the wallet's selected account; the footer's
+// Change link opens the wallet's account-change prompt so the user can pick another one first.
+
+test.describe("Account Switch", () => {
+  // The Connected: line for each account, as the page truncates it.
+  const SHOWS_TEST = "Connected: 0xf39F...2266";
+  const SHOWS_OTHER = "Connected: 0x3C44...93BC";
+
+  test("sends the transaction from the account picked via Change", async ({ browser }) => {
+    await using ctx = await walletContext(browser, { requestPermissions: { switchTo: OTHER_ADDRESS } });
+    const page = await ctx.newPage();
+
+    const { id } = await txRequest();
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await expect(page.locator("#tx-connected")).toHaveText(SHOWS_TEST);
+
+    await page.locator("#tx-switch-btn").click();
+    await expect(page.locator("#tx-connected")).toHaveText(SHOWS_OTHER);
+
+    await page.getByRole("button", { name: "Sign & Send" }).click();
+    await expect(page.getByText("Transaction Sent!")).toBeVisible({ timeout: 10000 });
+    expect(await page.evaluate(() => (window as any).ethereum._sentFrom)).toEqual([OTHER_ADDRESS]);
+    expect((await getTestResult(id))?.success).toBe(true);
+  });
+
+  test("signs a message from the account picked via revoke + reconnect", async ({ browser }) => {
+    // Silent wallets (Ambire/Rabby) escalate to revoke + reconnect, as in the mismatch flow.
+    await using ctx = await walletContext(browser, { requestPermissions: "silent", reconnectTo: OTHER_ADDRESS });
+    const page = await ctx.newPage();
+
+    const { id } = await createTestRequest("sign_message", { message: "hi", chainId: TEST_CHAIN_ID });
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+
+    await page.locator("#msg-switch-btn").click();
+    await expect(page.locator("#msg-connected")).toHaveText(SHOWS_OTHER);
+    expect(await page.evaluate(() => (window as any).ethereum._revokeCount)).toBe(1);
+
+    await page.getByRole("button", { name: "Sign" }).click();
+    await expect(page.getByText("Signed Successfully!")).toBeVisible({ timeout: 10000 });
+    expect((await getTestResult(id))?.success).toBe(true);
+  });
+
+  test("follows an account switch made in the wallet", async ({ browser }) => {
+    await using ctx = await walletContext(browser);
+    const page = await ctx.newPage();
+
+    const { id } = await txRequest();
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await expect(page.locator("#tx-connected")).toHaveText(SHOWS_TEST);
+
+    await page.evaluate((addr) => (window as any).ethereum._switchAccount(addr), OTHER_ADDRESS);
+    await expect(page.locator("#tx-connected")).toHaveText(SHOWS_OTHER);
+  });
+
+  test("keeps the prompt's rejection in-page", async ({ browser }) => {
+    await using ctx = await walletContext(browser, { requestPermissions: "reject" });
+    const page = await ctx.newPage();
+
+    const { id } = await txRequest();
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await page.locator("#tx-switch-btn").click();
+
+    await expect(page.locator("#tx-switch-btn")).toHaveText("Change");
+    await expect(page.locator("#tx-connected")).toHaveText(SHOWS_TEST);
+    expect(await getTestResult(id)).toEqual({ pending: true });
+  });
+
+  test("hides Change when the wallet has no account-change UI", async ({ browser }) => {
+    await using ctx = await walletContext(browser, { requestPermissions: "unsupported" });
+    const page = await ctx.newPage();
+
+    const { id } = await txRequest();
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await page.locator("#tx-switch-btn").click();
+    await expect(page.locator("#tx-switch-btn")).toBeHidden();
+  });
+
+  test("overrides a pinned signer with the picked account", async ({ browser }) => {
+    // The caller pinned TEST_ADDRESS (viem pins the connected account on every request); the
+    // user picks OTHER_ADDRESS instead, and the tx goes out from it.
+    await using ctx = await walletContext(browser, { requestPermissions: { switchTo: OTHER_ADDRESS } });
+    const page = await ctx.newPage();
+
+    const { id } = await txRequest({ from: TEST_ADDRESS });
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await page.locator("#tx-switch-btn").click();
+    await expect(page.locator("#tx-connected")).toHaveText(SHOWS_OTHER);
+    await expect(page.locator("#tx-required")).toContainText("overridden");
+
+    await page.getByRole("button", { name: "Sign & Send" }).click();
+    await expect(page.getByText("Transaction Sent!")).toBeVisible({ timeout: 10000 });
+    expect(await page.evaluate(() => (window as any).ethereum._sentFrom)).toEqual([OTHER_ADDRESS]);
+  });
+
+  test("connects the account picked on the connect page", async ({ browser }) => {
+    await using ctx = await walletContext(browser, { requestPermissions: "silent", reconnectTo: OTHER_ADDRESS });
+    const page = await ctx.newPage();
+
+    const { id } = await createTestRequest("connect", { chainId: TEST_CHAIN_ID });
+    await page.goto(`${getBaseUrl()}/connect/${id}`);
+    await expect(page.locator("#connect-connected")).toHaveText("Selected: 0xf39F...2266");
+    await page.locator("#connect-switch-btn").click();
+    await expect(page.getByText("Connected!")).toBeVisible({ timeout: 10000 });
+    expect((await getTestResult(id))?.result).toBe(OTHER_ADDRESS);
+  });
+
+  test("leaves a pinned connect to the wrong-address flow", async ({ browser }) => {
+    await using ctx = await walletContext(browser);
+    const page = await ctx.newPage();
+
+    const { id } = await createTestRequest("connect", { chainId: TEST_CHAIN_ID, address: TEST_ADDRESS });
+    await page.goto(`${getBaseUrl()}/connect/${id}`);
+    await expect(page.getByRole("button", { name: "Connect" })).toBeVisible();
+    await expect(page.locator("#connect-switch-btn")).toBeHidden();
   });
 });
 

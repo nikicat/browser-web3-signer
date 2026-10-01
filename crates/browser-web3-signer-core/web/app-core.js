@@ -176,6 +176,9 @@
   // button for good).
   var changingAccount = false;
   var accountChangeUnsupported = false;
+  // The account the user picked with "Change"; it signs instead of the request's pinned one.
+  var pickedAddress = "";
+  var unsubFollowSelected = null;
   // Set on explicit Reject/Cancel. A pending wallet prompt cannot be cancelled, so a late
   // approval of it must find this flag and NOT resume a request whose error was already
   // delivered (that would sign/broadcast with nobody listening for the result).
@@ -214,8 +217,15 @@
   }
 
   // --- Address matching / rejection ---
-  function expectedAddress() {
+  // Returns the account the request names as its signer ("" when it leaves it to the wallet).
+  function pinnedAddress() {
     return isTxType(request.type) ? request.from : request.address;
+  }
+
+  // Returns the account that must sign: the one the user picked with "Change", else the pinned
+  // one, else "" (whichever account the wallet selects).
+  function expectedAddress() {
+    return pickedAddress || pinnedAddress();
   }
 
   function wrongAddressMessage() {
@@ -228,6 +238,16 @@
     } else {
       await completeError(request.id, defaultReason);
     }
+  }
+
+  // Ends the request on an explicit Reject/Cancel: delivers the rejection, stops every account
+  // listener so a late wallet event can't resume it, and closes the window.
+  async function endRejected(defaultReason) {
+    finished = true;
+    cleanupAccountsListener();
+    if (unsubFollowSelected) unsubFollowSelected();
+    await rejectWith(defaultReason);
+    window.close();
   }
 
   function cleanupAccountsListener() {
@@ -252,13 +272,7 @@
     viewStatus = "connecting";
     cleanupAccountsListener();
     if (request.type === "connect") {
-      try {
-        await finishConnect(newAddr);
-      } catch (err) {
-        viewError = errMessage(err, "Connection failed");
-        viewStatus = "error";
-        render();
-      }
+      await connectAs(newAddr);
     } else if (isTxType(request.type)) {
       await window.app.handleSignTx();
     } else {
@@ -277,6 +291,14 @@
     });
   }
 
+  // Shows the wrong-address view and resumes the request once the wallet selects the expected
+  // account.
+  function enterWrongAddress() {
+    viewStatus = "wrong_address";
+    render();
+    startListeningForAccountChange();
+  }
+
   // After a failed operation, decide whether the failure IS the account mismatch: if the
   // wallet's account still doesn't match the expected one, enter the wrong-address flow instead
   // of the generic error view. The current address is re-read first because the operation itself
@@ -289,58 +311,102 @@
       connectedAddress = (await adapter.currentAddress()) || connectedAddress;
     } catch (_) {}
     if (adapter.addressMatch(connectedAddress, expected)) return false;
-    viewStatus = "wrong_address";
-    render();
-    startListeningForAccountChange();
+    enterWrongAddress();
     // 4001 = the user explicitly rejected wallet UI (e.g. denied a native switch-account
     // window); don't immediately open another prompt at them — the button stays available.
     if (!(err && err.code === 4001)) promptAccountChange();
     return true;
   }
 
-  // Proactively open the wallet's own account-change prompt (when the adapter supports one) so
-  // the user confirms the switch there instead of digging through the wallet UI. Fired without
-  // awaiting from the wrong-address branches; every failure stays IN-PAGE — a rejected or failed
-  // prompt just leaves the wrong-address view and the accountsChanged listener alive (the error
-  // contract: only an explicit Reject/Cancel propagates to the caller).
-  async function promptAccountChange() {
-    if (!adapter.requestAccountChange || accountChangeUnsupported || changingAccount || finished) {
-      return;
-    }
+  // True if the wallet may have an account-change prompt: the adapter implements one and the
+  // wallet hasn't proven it unsupported.
+  function accountChangeSupported() {
+    return !!adapter.requestAccountChange && !accountChangeUnsupported;
+  }
+
+  // True if an account-change prompt may open now: supported, none already open, and no Reject
+  // has ended the request.
+  function canPromptAccountChange() {
+    return accountChangeSupported() && !changingAccount && !finished;
+  }
+
+  // Returns the address the wallet's account-change prompt selected, "" when nothing changed or
+  // the prompt failed (logged, never propagated), or null when the wallet has no such UI. A
+  // wallet found lacking one (null, or EIP-1193 -32601) is never prompted again.
+  async function runAccountChangePrompt(expected) {
     changingAccount = true;
     render();
     try {
-      var addr = await adapter.requestAccountChange(expectedAddress());
-      if (addr === null) {
-        // The adapter exhausted its options without the wallet ever showing UI — stop offering
-        // the button and fall back to the manual-switch instructions.
-        accountChangeUnsupported = true;
-        // Connect dead end: no wallet UI to raise, and no accountsChanged coming — the dapp stays
-        // pinned to the connected account (Ambire). If the wallet arbitrates mismatched signers
-        // itself (walletHandlesMismatch), deliver the requested account; it prompts at signing time.
-        if (adapter.walletHandlesMismatch && request.type === "connect" && viewStatus === "wrong_address" && !finished) {
-          viewStatus = "connecting";
-          cleanupAccountsListener();
-          try {
-            await finishConnect(expectedAddress());
-          } catch (err2) {
-            viewError = errMessage(err2, "Connection failed");
-            viewStatus = "error";
-            render();
-          }
-          return;
-        }
-      } else if (addr) {
-        await maybeResume(addr);
-      }
+      var addr = await adapter.requestAccountChange(expected);
+      if (addr === null) accountChangeUnsupported = true;
+      return addr;
     } catch (err) {
       console.warn("[" + adapter.logTag + "] account-change prompt failed:", err);
-      // EIP-1193 -32601 = the wallet has no such method; stop offering the button.
       if (err && err.code === -32601) accountChangeUnsupported = true;
+      return "";
     } finally {
       changingAccount = false;
       render();
     }
+  }
+
+  // Opens the wallet's account-change prompt for the request's expected signer, so the user
+  // confirms the switch there instead of digging through the wallet UI, and resumes the request
+  // once the wallet switches. Fired without awaiting from the wrong-address branches.
+  async function promptAccountChange() {
+    if (!canPromptAccountChange()) return;
+    var addr = await runAccountChangePrompt(expectedAddress());
+    if (addr) await maybeResume(addr);
+    else if (addr === null) await connectDespiteNoPrompt();
+  }
+
+  // Delivers a connect request's expected address although the wallet can't switch to it (Ambire
+  // keeps the dapp pinned to the connected account), when the wallet arbitrates mismatched
+  // signers itself (walletHandlesMismatch) and so prompts at signing time.
+  async function connectDespiteNoPrompt() {
+    if (!adapter.walletHandlesMismatch || request.type !== "connect" || viewStatus !== "wrong_address" || finished) {
+      return;
+    }
+    cleanupAccountsListener();
+    await connectAs(expectedAddress());
+  }
+
+  // Delivers `address` as the connect request's result; a failure stays in-page.
+  async function connectAs(address) {
+    viewStatus = "connecting";
+    try {
+      await finishConnect(address);
+    } catch (err) {
+      viewError = errMessage(err, "Connection failed");
+      viewStatus = "error";
+      render();
+    }
+  }
+
+  // Lets the user pick the account in the wallet: a connect request delivers it at once, and a
+  // sign request signs with it even when the request pinned another (the caller is not told).
+  async function switchAccount() {
+    if (!canPromptAccountChange()) return;
+    var addr = await runAccountChangePrompt("");
+    if (!addr || finished) return;
+    connectedAddress = addr;
+    if (request.type === "connect") {
+      await connectAs(addr);
+      return;
+    }
+    pickedAddress = addr;
+    render();
+  }
+
+  // Keeps the shown account on the wallet's selected one while the page waits on the user; a
+  // picked account follows a switch made in the wallet. The wrong-address flow listens for itself.
+  function followSelectedAccount() {
+    unsubFollowSelected = adapter.onAccountsChanged(function (addr) {
+      if (finished || settledResult !== null || viewStatus === "wrong_address" || !addr) return;
+      connectedAddress = addr;
+      if (pickedAddress) pickedAddress = addr;
+      render();
+    });
   }
 
   async function finishConnect(address) {
@@ -367,26 +433,50 @@
   }
 
   // --- Renderers ---
-  // The Change Account button and the dynamic hint exist only in pages whose adapter implements
-  // requestAccountChange (the TRON page shares this renderer without them), so every element
+  // The account-change buttons and the dynamic hint exist only in pages whose adapter implements
+  // requestAccountChange (the TRON page shares these renderers without them), so every element
   // here is optional.
+  function renderAccountChangeBtn(btnId, offered, label) {
+    var btn = $(btnId);
+    if (!btn) return;
+    if (!offered) {
+      hide(btn);
+      return;
+    }
+    btn.disabled = changingAccount;
+    btn.textContent = changingAccount ? "Check Wallet..." : label;
+    show(btn);
+  }
+
   function renderChangeAccountUi(btnId, hintId) {
-    var supported = !!adapter.requestAccountChange && !accountChangeUnsupported;
+    var supported = accountChangeSupported();
     var hint = $(hintId);
     if (hint) {
       hint.textContent = supported
         ? "Approve the account change in your wallet, or switch manually."
         : "Switch to the correct account in your wallet to continue.";
     }
-    var btn = $(btnId);
-    if (!btn) return;
-    if (!supported) {
-      hide(btn);
+    renderAccountChangeBtn(btnId, supported, "Change Account");
+  }
+
+  // True if the page offers "Change" while it waits on the user. It needs a selected account to
+  // change from (otherwise the operation itself opens the wallet's picker), and a connect request
+  // that pins its address has the wrong-address flow instead.
+  function switchOffered() {
+    return accountChangeSupported() && !!connectedAddress && !(request.type === "connect" && request.address) &&
+      (viewStatus === "idle" || viewStatus === "error");
+  }
+
+  // Shows the wallet's selected account, truncated, in the optional badge `id`.
+  function renderAccountBadge(id, label) {
+    var badge = $(id);
+    if (!badge) return;
+    if (!connectedAddress) {
+      hide(badge);
       return;
     }
-    btn.disabled = changingAccount;
-    btn.textContent = changingAccount ? "Check Wallet..." : "Change Account";
-    show(btn);
+    badge.textContent = label + truncAddr(connectedAddress);
+    show(badge);
   }
 
   var CONNECT_SECTIONS = ["connect-no-wallet", "connect-success", "connect-wrong", "connect-err", "connect-idle"];
@@ -430,6 +520,8 @@
           show(iconEl);
         } else hide(iconEl);
       }
+      renderAccountBadge("connect-connected", "Selected: ");
+      renderAccountChangeBtn("connect-switch-btn", switchOffered(), "Change");
       var btn = $("connect-btn");
       btn.disabled = viewStatus === "connecting" || viewStatus === "switching";
       btn.textContent = viewStatus === "connecting"
@@ -441,128 +533,111 @@
     }
   }
 
-  function renderTx() {
-    hide($("tx-success"));
-    hide($("tx-wrong"));
-    hide($("tx-err"));
-    hide($("tx-details"));
-    hide($("tx-no-wallet"));
-    hide($("tx-footer"));
+  // Renders the "tx" or "msg" sign view (element ids start with `prefix`) for the current status;
+  // `view` supplies that view's own panels and sign-button label.
+  function renderSignView(prefix, view) {
+    function el(suffix) {
+      return $(prefix + "-" + suffix);
+    }
+    var panels = ["success", "wrong", "err", "no-wallet", "footer"].map(el).concat(view.detailIds.map($));
+    for (var i = 0; i < panels.length; i++) hide(panels[i]);
 
-    var heading = $("tx-heading");
-    if (heading) heading.textContent = adapter.txHeading(request);
-
-    if (request.from && viewStatus !== "success" && viewStatus !== "wrong_address") {
-      $("tx-required-text").textContent = request.from;
-      show($("tx-required"));
-    } else hide($("tx-required"));
+    var expected = expectedAddress();
+    var pinned = pinnedAddress();
+    if (pinned && viewStatus !== "success" && viewStatus !== "wrong_address") {
+      el("required-text").textContent = pickedAddress && !adapter.addressMatch(pickedAddress, pinned)
+        ? pinned + " (overridden by your choice)"
+        : pinned;
+      show(el("required"));
+    } else hide(el("required"));
 
     if (viewStatus === "success") {
-      $("tx-hash").textContent = txHash;
-      if (adapter.renderTxSuccessExtra) adapter.renderTxSuccessExtra(request, { txHash: txHash, deployedAddress: deployedAddress });
-      show($("tx-success"));
+      view.showResult();
+      show(el("success"));
     } else if (viewStatus === "wrong_address") {
-      $("tx-wrong-expected").textContent = request.from;
-      $("tx-wrong-got").textContent = connectedAddress;
-      renderChangeAccountUi("tx-change-btn", "tx-wrong-hint");
-      show($("tx-wrong"));
+      el("wrong-expected").textContent = expected;
+      el("wrong-got").textContent = connectedAddress;
+      renderChangeAccountUi(prefix + "-change-btn", prefix + "-wrong-hint");
+      show(el("wrong"));
       return;
     } else if (viewStatus === "error") {
-      $("tx-err-msg").textContent = viewError;
-      show($("tx-err"));
+      el("err-msg").textContent = viewError;
+      show(el("err"));
     } else {
-      adapter.renderTxDetails(request);
-      show($("tx-details"));
+      view.showDetails();
     }
 
     if (!adapter.hasWallet()) {
-      show($("tx-no-wallet"));
+      show(el("no-wallet"));
     } else if (viewStatus !== "success") {
-      if (connectedAddress) {
-        $("tx-connected").textContent = "Connected: " + truncAddr(connectedAddress);
-        show($("tx-connected"));
-      } else hide($("tx-connected"));
-      var btn = $("tx-btn");
+      renderAccountBadge(prefix + "-connected", "Connected: ");
+      renderAccountChangeBtn(prefix + "-switch-btn", switchOffered(), "Change");
+      var btn = el("btn");
       btn.disabled = viewStatus === "connecting" || viewStatus === "signing";
       btn.textContent = viewStatus === "connecting"
         ? "Connecting..."
         : viewStatus === "signing"
         ? adapter.confirmLabel
-        : adapter.txButtonLabel(request);
-      show($("tx-footer"));
+        : view.buttonLabel;
+      show(el("footer"));
     }
+  }
+
+  function renderTx() {
+    var heading = $("tx-heading");
+    if (heading) heading.textContent = adapter.txHeading(request);
+    renderSignView("tx", {
+      detailIds: ["tx-details"],
+      showDetails: function () {
+        adapter.renderTxDetails(request);
+        show($("tx-details"));
+      },
+      showResult: function () {
+        $("tx-hash").textContent = txHash;
+        if (adapter.renderTxSuccessExtra) adapter.renderTxSuccessExtra(request, { txHash: txHash, deployedAddress: deployedAddress });
+      },
+      buttonLabel: adapter.txButtonLabel(request),
+    });
   }
 
   function renderMsg() {
     var isTypedData = request.type === "sign_typed_data";
     $("msg-heading").textContent = isTypedData ? "Sign Typed Data" : "Sign Message";
+    renderSignView("msg", {
+      detailIds: ["msg-content", "msg-chain"],
+      showDetails: function () {
+        showMsgContent(isTypedData);
+        var badge = adapter.badgeText(request);
+        if (badge) {
+          $("msg-chain").textContent = badge;
+          show($("msg-chain"));
+        }
+      },
+      showResult: function () {
+        $("msg-sig").textContent = signature;
+      },
+      buttonLabel: "Sign",
+    });
+  }
 
-    hide($("msg-success"));
-    hide($("msg-wrong"));
-    hide($("msg-err"));
-    hide($("msg-content"));
-    hide($("msg-chain"));
-    hide($("msg-no-wallet"));
-    hide($("msg-footer"));
-
-    if (request.address && viewStatus !== "success" && viewStatus !== "wrong_address") {
-      $("msg-required-text").textContent = request.address;
-      show($("msg-required"));
-    } else hide($("msg-required"));
-
-    if (viewStatus === "success") {
-      $("msg-sig").textContent = signature;
-      show($("msg-success"));
-    } else if (viewStatus === "wrong_address") {
-      $("msg-wrong-expected").textContent = request.address;
-      $("msg-wrong-got").textContent = connectedAddress;
-      renderChangeAccountUi("msg-change-btn", "msg-wrong-hint");
-      show($("msg-wrong"));
-      return;
-    } else if (viewStatus === "error") {
-      $("msg-err-msg").textContent = viewError;
-      show($("msg-err"));
+  function showMsgContent(isTypedData) {
+    if (isTypedData) {
+      hide($("msg-plain"));
+      $("msg-typed-data").textContent = JSON.stringify(
+        { domain: request.domain, primaryType: request.primaryType, message: request.message },
+        null,
+        2,
+      );
+      show($("msg-typed"));
     } else {
-      if (isTypedData) {
-        hide($("msg-plain"));
-        $("msg-typed-data").textContent = JSON.stringify(
-          { domain: request.domain, primaryType: request.primaryType, message: request.message },
-          null,
-          2,
-        );
-        show($("msg-typed"));
-      } else {
-        hide($("msg-typed"));
-        // A `{ raw }` message is bytes, not text: show its hex and say so.
-        var raw = typeof request.message !== "string";
-        $("msg-label").textContent = raw ? "Raw bytes (hex)" : "Message";
-        $("msg-text").textContent = raw ? request.message.raw : request.message;
-        show($("msg-plain"));
-      }
-      show($("msg-content"));
-      var badge = adapter.badgeText(request);
-      if (badge) {
-        $("msg-chain").textContent = badge;
-        show($("msg-chain"));
-      }
+      hide($("msg-typed"));
+      // A `{ raw }` message is bytes, not text: show its hex and say so.
+      var raw = typeof request.message !== "string";
+      $("msg-label").textContent = raw ? "Raw bytes (hex)" : "Message";
+      $("msg-text").textContent = raw ? request.message.raw : request.message;
+      show($("msg-plain"));
     }
-
-    if (!adapter.hasWallet()) {
-      show($("msg-no-wallet"));
-    } else if (viewStatus !== "success") {
-      if (connectedAddress) {
-        $("msg-connected").textContent = "Connected: " + truncAddr(connectedAddress);
-        show($("msg-connected"));
-      } else hide($("msg-connected"));
-      var btn = $("msg-btn");
-      btn.disabled = viewStatus === "connecting" || viewStatus === "signing";
-      btn.textContent = viewStatus === "connecting"
-        ? "Connecting..."
-        : viewStatus === "signing"
-        ? adapter.confirmLabel
-        : "Sign";
-      show($("msg-footer"));
-    }
+    show($("msg-content"));
   }
 
   function render() {
@@ -589,9 +664,7 @@
         var address = await adapter.requestAccounts();
         connectedAddress = address;
         if (request.address && !adapter.addressMatch(address, request.address)) {
-          viewStatus = "wrong_address";
-          render();
-          startListeningForAccountChange();
+          enterWrongAddress();
           promptAccountChange();
           return;
         }
@@ -609,10 +682,7 @@
     },
 
     cancelConnect: async function () {
-      finished = true;
-      cleanupAccountsListener();
-      await rejectWith("User cancelled");
-      window.close();
+      await endRejected("User cancelled");
     },
 
     handleSignTx: async function () {
@@ -633,10 +703,9 @@
         // step; wallets without one reject immediately (MetaMask 4100, Rabby -32602) and the
         // catch below turns that into the wrong-address flow. Chains whose wallets do NOT
         // handle it (TRON) are gated here instead.
-        if (!adapter.walletHandlesMismatch && request.from && !adapter.addressMatch(connectedAddress, request.from)) {
-          viewStatus = "wrong_address";
-          render();
-          startListeningForAccountChange();
+        var from = expectedAddress();
+        if (!adapter.walletHandlesMismatch && from && !adapter.addressMatch(connectedAddress, from)) {
+          enterWrongAddress();
           promptAccountChange();
           return;
         }
@@ -646,7 +715,7 @@
 
         // Broadcast exactly once; record the result BEFORE attempting delivery so any delivery
         // failure can only retry the POST, not re-broadcast.
-        var out = await adapter.sendTx(request, request.from || connectedAddress);
+        var out = await adapter.sendTx(request, from || connectedAddress);
         txHash = out.txHash;
         if (out.contractAddress) deployedAddress = out.contractAddress;
         settledResult = out.settled;
@@ -665,10 +734,7 @@
     },
 
     rejectTx: async function () {
-      finished = true;
-      cleanupAccountsListener();
-      await rejectWith("User rejected transaction");
-      window.close();
+      await endRejected("User rejected transaction");
     },
 
     handleSignMsg: async function () {
@@ -686,10 +752,9 @@
         // As in handleSignTx: a mismatched request is submitted for the requested address anyway
         // so wallet-native switch flows can run (a rejection lands in the catch) — unless the
         // chain's wallets can't handle a mismatch, which is gated here.
-        if (!adapter.walletHandlesMismatch && request.address && !adapter.addressMatch(connectedAddress, request.address)) {
-          viewStatus = "wrong_address";
-          render();
-          startListeningForAccountChange();
+        var sigAddress = expectedAddress() || connectedAddress;
+        if (!adapter.walletHandlesMismatch && !adapter.addressMatch(connectedAddress, sigAddress)) {
+          enterWrongAddress();
           promptAccountChange();
           return;
         }
@@ -697,7 +762,6 @@
         viewStatus = "signing";
         render();
 
-        var sigAddress = request.address || connectedAddress;
         var sig;
         if (request.type === "sign_typed_data" && request.domain && request.types && request.primaryType && request.message) {
           sig = await adapter.signTypedData(request, sigAddress);
@@ -721,11 +785,10 @@
     },
 
     rejectSign: async function () {
-      finished = true;
-      cleanupAccountsListener();
-      await rejectWith("User rejected signing");
-      window.close();
+      await endRejected("User rejected signing");
     },
+
+    switchAccount: switchAccount,
 
     changeAccount: function () {
       // Re-attempting the operation is the most capable "change account" action: wallets with a
@@ -746,8 +809,19 @@
     render();
   }
 
+  // Shows the bridge's build version in #version, so a bug report names the exact build. Best
+  // effort: a page whose bridge doesn't answer just shows none.
+  async function showVersion() {
+    var el = $("version");
+    if (!el) return;
+    try {
+      el.textContent = (await (await fetch("/api/health")).json()).version || "";
+    } catch (_) {}
+  }
+
   // --- Init ---
   async function init() {
+    showVersion();
     await adapter.setup();
     connectedAddress = await adapter.currentAddress();
 
@@ -763,6 +837,7 @@
       // An error shown before the wallet reached the request's chain was likely the missing
       // network; the user retries from the normal view instead of a stale message.
       if (adapter.onChainReady) adapter.onChainReady(request, clearStaleError);
+      followSelectedAccount();
       if (request.type === "connect") {
         showView("view-connect");
         renderConnect();

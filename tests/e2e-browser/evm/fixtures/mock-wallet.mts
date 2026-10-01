@@ -230,6 +230,7 @@ function installMockWallet(cfg: MockWalletConfig) {
         console.log("[MockWallet] eth_sendTransaction:", tx);
         requireAuthorized(tx.from);
         provider._sendTxCount++;
+        provider._sentFrom.push(tx.from);
         return "0x" + "ab".repeat(32);
       },
       personal_sign: async (params) => {
@@ -267,6 +268,8 @@ function installMockWallet(cfg: MockWalletConfig) {
     const p: any = {
       _isMockProvider: true,
       _sendTxCount: 0,
+      // The `from` of each sent transaction, so a test can tell which account signed.
+      _sentFrom: [],
       _permissionRequestCount: 0,
       _revokeCount: 0,
       _addedChains: [],

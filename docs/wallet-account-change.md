@@ -40,6 +40,25 @@ Reject never signs (the rejection was already delivered); TRON opts out of attem
 the `walletHandlesMismatch` adapter capability because tronWeb would blindly sign an
 unbroadcastable transaction for a foreign owner.
 
+## Picking the account by hand
+
+Callers usually pin the signer to the account the connect step returned (viem sets `from` on
+every request), so the account choice has to be available on every page, not only when no
+signer is pinned:
+
+- **Connect** (no `address` pinned): the page shows the wallet's selected account
+  (`Selected: 0x…`); its "Change" link runs the `requestAccountChange` cascade (steps 2–3 above)
+  and delivers the account the user picked. With no account selected yet, Connect itself opens
+  the wallet's picker, so the link is hidden. Ambire's
+  `eth_requestAccounts` never shows a picker on a connected origin, so this is the only way to
+  choose there.
+- **Sign / send**: a "Change" link next to `Connected: 0x…` runs the same cascade. The picked
+  account signs, **overriding a pinned `from` / `address`** — the Required row says so, and the
+  caller only gets the hash or signature, not the account that produced it. An `accountsChanged`
+  listener keeps the line (and a picked account) in step with switches made in the wallet.
+
+Rejections stay in-page; a wallet with no account-change UI (`null` / -32601) loses the link.
+
 ## Per-wallet findings
 
 | Wallet | Mismatched operation (`from` ≠ selected) | `wallet_requestPermissions` (connected) | MIP-2 revoke | Lands on |

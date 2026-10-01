@@ -3,6 +3,7 @@
 
 use std::time::Duration;
 
+use browser_web3_signer_core::http::VERSION;
 use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Request, SignerError, UrlKind};
 use serde::Serialize;
 use tokio::time;
@@ -92,6 +93,7 @@ async fn round_trip_success() {
         .unwrap();
     assert_eq!(health["status"], "ok");
     assert_eq!(health["pendingRequests"], 1);
+    assert_eq!(health["version"], VERSION);
 
     // Browser posts the signed result.
     let resp = client
