@@ -410,6 +410,7 @@
             <div class="error-box">
               <p>Connection Failed</p>
               <p id="connect-err-msg" class="small"></p>
+              <p class="small chainlist-link hidden"><a target="_blank" rel="noopener">Add this network via Chainlist</a>, then try again.</p>
             </div>
             <div class="buttons">
               <button class="btn-secondary" onclick="app.cancelConnect()">Cancel</button>
@@ -477,6 +478,7 @@
           <div id="tx-err" class="error-box hidden">
             <p>Transaction Failed</p>
             <p id="tx-err-msg" class="small"></p>
+            <p class="small chainlist-link hidden"><a target="_blank" rel="noopener">Add this network via Chainlist</a>, then try again.</p>
           </div>
 
           <!-- details -->
@@ -561,6 +563,7 @@
           <div id="msg-err" class="error-box hidden">
             <p>Signing Failed</p>
             <p id="msg-err-msg" class="small"></p>
+            <p class="small chainlist-link hidden"><a target="_blank" rel="noopener">Add this network via Chainlist</a>, then try again.</p>
           </div>
 
           <!-- message content -->
@@ -607,7 +610,7 @@
         var CHAINS = {
           1: { name: "Ethereum", symbol: "ETH", decimals: 18, rpc: "https://eth.llamarpc.com", explorer: "https://etherscan.io" },
           11155111: { name: "Sepolia", symbol: "ETH", decimals: 18, rpc: "https://rpc.sepolia.org", explorer: "https://sepolia.etherscan.io" },
-          137: { name: "Polygon", symbol: "MATIC", decimals: 18, rpc: "https://polygon-rpc.com", explorer: "https://polygonscan.com" },
+          137: { name: "Polygon", symbol: "POL", decimals: 18, rpc: "https://polygon-rpc.com", explorer: "https://polygonscan.com" },
           42161: { name: "Arbitrum One", symbol: "ETH", decimals: 18, rpc: "https://arb1.arbitrum.io/rpc", explorer: "https://arbiscan.io" },
           10: { name: "Optimism", symbol: "ETH", decimals: 18, rpc: "https://mainnet.optimism.io", explorer: "https://optimistic.etherscan.io" },
           8453: { name: "Base", symbol: "ETH", decimals: 18, rpc: "https://mainnet.base.org", explorer: "https://basescan.org" },
@@ -672,26 +675,43 @@
         }
 
         /**
-         * Ensure the wallet's active chain is `chainId`, adding the network first if unknown.
-         *
-         * Correctness here is defined by the wallet actually *reporting* the target chain (checked
-         * via `onChain`), never by whether an individual RPC call returned without throwing. That
-         * distinction matters because MetaMask can add a network successfully yet still throw an
-         * internal `TypeError` ("p is not a function", code -32603) from the auto-switch it runs
-         * after `wallet_addEthereumChain`. So each wallet call is best-effort, and every branch
-         * ends by re-checking the real state.
+         * Switches the wallet to `chainId`, asking it to add the network when it lacks one. Throws
+         * `MissingChainError` when the network can't be added, and the wallet's own error when the
+         * user refuses the switch.
          */
         async function switchChain(chainId, request) {
+          // Success is the wallet *reporting* the chain, never a call returning: MetaMask can add a
+          // network and still throw (-32603) from its own auto-switch, so each branch re-checks.
           if (await onChain(chainId)) return;
           if (await trySwitch(chainId)) return; // succeeds when the network already exists
           await addChain(chainId, request); // best-effort; may add-then-internally-throw
           if (await onChain(chainId)) return; // add usually auto-switches
           if (await trySwitch(chainId)) return; // otherwise switch onto the now-known chain
-          throw new Error("could not switch the wallet to chain " + chainId +
-            " — add the network for chain " + chainId + " manually and retry");
+          throw new MissingChainError(chainId);
         }
 
-        /** True if the wallet currently reports `chainId` as its active chain. */
+        /** The wallet lacks the network for `chainId` and nothing could add it. */
+        class MissingChainError extends Error {
+          constructor(chainId) {
+            super("could not switch the wallet to chain " + chainId);
+            this.chainId = chainId;
+          }
+        }
+
+        /** Reveals the error boxes' link to Chainlist's add-network page for `chainId`. */
+        function showChainlistLink(chainId) {
+          document.querySelectorAll(".chainlist-link").forEach(function (el) {
+            el.querySelector("a").href = "https://chainlist.org/chain/" + chainId;
+            show(el);
+          });
+        }
+
+        /** Hides the Chainlist link, so it never decorates an error about something else. */
+        function hideChainlistLink() {
+          document.querySelectorAll(".chainlist-link").forEach(hide);
+        }
+
+        /** Checks whether the wallet currently reports `chainId` as its active chain. */
         async function onChain(chainId) {
           try {
             return (await getChainId()) === chainId;
@@ -701,14 +721,12 @@
         }
 
         /**
-         * Attempt `wallet_switchEthereumChain`. Returns true if the wallet ends up on `chainId`.
-         * Returns false (rather than throwing) when the chain is simply unknown yet — the caller
-         * then adds it. Re-throws genuine failures (e.g. the user rejecting the switch).
+         * Asks the wallet to switch to `chainId`. Returns true if it is on `chainId` afterwards and
+         * false if it doesn't know the chain; throws other wallet errors, such as a refusal.
          */
         async function trySwitch(chainId) {
-          var hexId = "0x" + chainId.toString(16);
           try {
-            await rpc("wallet_switchEthereumChain", [{ chainId: hexId }]);
+            await rpc("wallet_switchEthereumChain", [{ chainId: toQuantity(chainId) }]);
           } catch (err) {
             if (isUnknownChainError(err)) return false;
             // MetaMask's post-switch internal error still often lands us on the chain — verify
@@ -719,40 +737,124 @@
         }
 
         /**
-         * Add the network for `chainId` via `wallet_addEthereumChain`. Best-effort: a thrown error
-         * is logged, not propagated, because MetaMask commonly adds the chain and *then* throws
-         * from its internal auto-switch — the caller verifies the resulting chain state.
+         * Asks the wallet to add the network for `chainId`, if anything describes it. Never throws:
+         * MetaMask can add the chain and still throw, so callers check the active chain instead.
          */
         async function addChain(chainId, request) {
+          var chain = await describeChain(chainId, request);
+          if (!chain) return; // switchChain reports the failure
           try {
-            await rpc("wallet_addEthereumChain", [buildAddChainParams(chainId, request)]);
+            await rpc("wallet_addEthereumChain", [addChainParams(chainId, chain)]);
           } catch (err) {
             console.warn("[browser-evm-signer] wallet_addEthereumChain threw (verifying state anyway):", err);
           }
         }
 
         /**
-         * Build `wallet_addEthereumChain` params for `chainId`, preferring a built-in chain entry
-         * and falling back to the request's `rpcUrl`/`chainName` (for custom chains like anvil).
-         * Omits `blockExplorerUrls` entirely when unknown — MetaMask rejects an explicit
-         * `undefined`.
+         * @typedef {Object} ChainInfo  What a wallet needs to add a network.
+         * @property {string} name
+         * @property {{name: string, symbol: string, decimals: number}} currency  The native coin.
+         * @property {string[]} rpcUrls  Non-empty.
+         * @property {string} [explorer]  Block explorer base URL.
          */
-        function buildAddChainParams(chainId, request) {
-          var chain = CHAINS[chainId];
-          var rpcUrl = (chain && chain.rpc) || request.rpcUrl;
-          if (!rpcUrl) throw new Error("Unknown chain ID " + chainId + " and no rpcUrl provided");
-          var name = (chain && chain.name) || request.chainName || ("Chain " + chainId);
-          var params = {
-            chainId: "0x" + chainId.toString(16),
-            chainName: name,
-            nativeCurrency: { name: name, symbol: (chain && chain.symbol) || "ETH", decimals: 18 },
-            rpcUrls: [rpcUrl],
+
+        /**
+         * Returns the `ChainInfo` for `chainId`, or null when nothing describes it. A request's
+         * own `rpcUrl` (a caller's node, e.g. an anvil fork of mainnet) beats the built-in
+         * `CHAINS`, which beat the chain registry.
+         */
+        async function describeChain(chainId, request) {
+          var builtin = CHAINS[chainId];
+          if (request.rpcUrl) return requestChain(chainId, request, builtin);
+          if (builtin) return builtinChain(builtin);
+          return registryChain(chainId);
+        }
+
+        /** Returns the `ChainInfo` for a request's own `rpcUrl`, named from `builtin` when unnamed. */
+        function requestChain(chainId, request, builtin) {
+          return {
+            name: request.chainName || (builtin && builtin.name) || ("Chain " + chainId),
+            currency: coin((builtin && builtin.symbol) || "ETH"),
+            rpcUrls: [request.rpcUrl],
+            explorer: builtin && builtin.explorer,
           };
-          if (chain && chain.explorer) params.blockExplorerUrls = [chain.explorer];
+        }
+
+        /** Returns the `ChainInfo` for a `CHAINS` entry. */
+        function builtinChain(builtin) {
+          return { name: builtin.name, currency: coin(builtin.symbol), rpcUrls: [builtin.rpc], explorer: builtin.explorer };
+        }
+
+        /** Returns an 18-decimal native coin named by its symbol, for chains with no full entry. */
+        function coin(symbol) {
+          return { name: symbol, symbol: symbol, decimals: 18 };
+        }
+
+        /**
+         * Returns the `wallet_addEthereumChain` params for `chain`. Omits `blockExplorerUrls` when
+         * unknown: MetaMask rejects an explicit `undefined`.
+         */
+        function addChainParams(chainId, chain) {
+          var params = {
+            chainId: toQuantity(chainId),
+            chainName: chain.name,
+            nativeCurrency: chain.currency,
+            rpcUrls: chain.rpcUrls,
+          };
+          if (chain.explorer) params.blockExplorerUrls = [chain.explorer];
           return params;
         }
 
-        /** Whether a provider error means "chain not added yet" (EIP-3085 code 4902, incl. nested). */
+        // --- Chain registry (https://github.com/ethereum-lists/chains, the data behind Chainlist) ---
+        var REGISTRY_URL = "https://chainid.network/chains_mini.json";
+
+        /** Returns the registry's chain list (~750 KB). Throws when it is unreachable. */
+        function fetchRegistry() {
+          return fetch(REGISTRY_URL).then(function (res) {
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res.json();
+          });
+        }
+        // Several chain switches on one page share one download; a failed one is retried.
+        var loadRegistry = C.onceUntilFailure(fetchRegistry);
+
+        /**
+         * Returns the registry's `ChainInfo` for `chainId`, or null when the registry is
+         * unreachable, lacks the chain, or lists no endpoint a wallet can use.
+         */
+        async function registryChain(chainId) {
+          var list;
+          try {
+            list = await loadRegistry();
+          } catch (err) {
+            console.warn("[browser-evm-signer] chain registry unavailable:", err);
+            return null;
+          }
+          var entry = list.find(function (c) {
+            return c.chainId === chainId;
+          });
+          return entry ? fromRegistryEntry(entry) : null;
+        }
+
+        /** Returns the `ChainInfo` for a registry entry, or null when it lists no endpoint a wallet can use. */
+        function fromRegistryEntry(entry) {
+          var rpcUrls = (entry.rpc || []).filter(isWalletRpcUrl).slice(0, 3);
+          if (!rpcUrls.length) return null;
+          var explorer = entry.explorers && entry.explorers[0] && entry.explorers[0].url;
+          return { name: entry.name, currency: entry.nativeCurrency, rpcUrls: rpcUrls, explorer: explorer };
+        }
+
+        /** Checks whether a registry RPC URL is a plain https endpoint, not wss or a `${API_KEY}` template. */
+        function isWalletRpcUrl(url) {
+          return /^https:\/\//.test(url) && url.indexOf("${") < 0;
+        }
+
+        /** Returns `n` (a number or decimal string) as an EIP-1474 hex quantity. */
+        function toQuantity(n) {
+          return "0x" + BigInt(n).toString(16);
+        }
+
+        /** Checks whether a provider error means "chain not added yet" (EIP-3085 code 4902, incl. nested). */
         function isUnknownChainError(err) {
           if (!err) return false;
           if (err.code === 4902) return true;
@@ -780,10 +882,18 @@
           return out;
         }
 
-        // Ensure the wallet is on the request's chain before a signing/sending operation.
+        // Switches the wallet to the request's chain before a signing/sending operation; when the
+        // network can't be added, the error that follows shows a Chainlist link for it.
         async function ensureChain(request) {
+          hideChainlistLink();
           if (!request.chainId) return;
-          if ((await getChainId()) !== request.chainId) await switchChain(request.chainId, request);
+          if ((await getChainId()) === request.chainId) return;
+          try {
+            await switchChain(request.chainId, request);
+          } catch (err) {
+            if (err instanceof MissingChainError) showChainlistLink(err.chainId);
+            throw err;
+          }
         }
 
         // --- Chain adapter ---
@@ -892,12 +1002,12 @@
           sendTx: async function (request, from) {
             await ensureChain(request);
             var tx = { from: from, to: request.to };
-            if (request.value) tx.value = "0x" + BigInt(request.value).toString(16);
+            if (request.value) tx.value = toQuantity(request.value);
             if (request.data) tx.data = request.data;
-            if (request.gasLimit) tx.gas = "0x" + BigInt(request.gasLimit).toString(16);
-            if (request.maxFeePerGas) tx.maxFeePerGas = "0x" + BigInt(request.maxFeePerGas).toString(16);
+            if (request.gasLimit) tx.gas = toQuantity(request.gasLimit);
+            if (request.maxFeePerGas) tx.maxFeePerGas = toQuantity(request.maxFeePerGas);
             if (request.maxPriorityFeePerGas) {
-              tx.maxPriorityFeePerGas = "0x" + BigInt(request.maxPriorityFeePerGas).toString(16);
+              tx.maxPriorityFeePerGas = toQuantity(request.maxPriorityFeePerGas);
             }
             var hash = await rpc("eth_sendTransaction", [tx]);
             return { settled: hash, txHash: hash };

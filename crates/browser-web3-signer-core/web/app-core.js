@@ -64,6 +64,24 @@
     el.classList.add("hidden");
   }
 
+  // --- Async helpers ---
+  /**
+   * Returns a function sharing one `load()` promise among all its callers while that promise is
+   * pending or fulfilled; a rejected one is dropped, so the next call retries.
+   */
+  function onceUntilFailure(load) {
+    var pending = null;
+    return function () {
+      if (!pending) {
+        pending = load();
+        pending.catch(function () {
+          pending = null;
+        });
+      }
+      return pending;
+    };
+  }
+
   var ALL_VIEWS = ["view-loading", "view-error", "view-not-found", "view-connect", "view-tx", "view-msg"];
   function showView(id) {
     for (var i = 0; i < ALL_VIEWS.length; i++) hide($(ALL_VIEWS[i]));
@@ -763,5 +781,6 @@
     hide: hide,
     truncAddr: truncAddr,
     errMessage: errMessage,
+    onceUntilFailure: onceUntilFailure,
   };
 })();

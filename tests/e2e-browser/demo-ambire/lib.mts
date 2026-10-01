@@ -12,6 +12,7 @@ import { gunzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ANVIL_CHAIN_ID, ANVIL_RPC, CHROMIUM_ARGS, FIXTURE, KEYSTORE_PASS } from "./config.mts";
+import { addFakeCursor, CURSOR_ARROW, FAKE_CURSOR_ID } from "../fixtures/fake-cursor.mts";
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -112,22 +113,7 @@ export async function bootAmbire(opts: { extraArgs?: string[]; cursorOverlay?: b
   await findSw(ctx);
 
   if (opts.cursorOverlay) {
-    // Screen capture shows no OS cursor; draw one that follows Playwright's mouse.
-    await ctx.addInitScript(`
-window.addEventListener("DOMContentLoaded", () => {
-  const cur = document.createElement("div");
-  cur.id = "pw-cursor-dot";
-  cur.style.cssText = "position:fixed;z-index:99999;width:22px;height:30px;pointer-events:none;" +
-    "left:-60px;top:-60px;transition:transform .08s";
-  cur.innerHTML = '<svg width="22" height="30" viewBox="0 0 22 30">' +
-    '<path d="M2 2 L2 24 L8 19 L12 28 L15.5 26.5 L11.5 17.5 L19 17 Z" ' +
-    'fill="#fff" stroke="#000" stroke-width="1.6" stroke-linejoin="round"/></svg>';
-  document.body.appendChild(cur);
-  window.addEventListener("mousemove", (e) => { cur.style.left = e.clientX + "px"; cur.style.top = e.clientY + "px"; }, true);
-  window.addEventListener("mousedown", () => { cur.style.transform = "scale(0.82)"; }, true);
-  window.addEventListener("mouseup", () => { cur.style.transform = "scale(1)"; }, true);
-});
-`);
+    await addFakeCursor(ctx, CURSOR_ARROW);
   }
 
   const tab = await ctx.newPage();
@@ -157,13 +143,13 @@ export const findRequestWindow = (ctx: BrowserContext): Page | undefined =>
 /** Eased, human-paced cursor glide (Playwright's steps run too fast on camera). */
 export async function glideTo(page: Page, x: number, y: number, ms = 900): Promise<void> {
   const steps = Math.max(24, Math.floor(ms / 16));
-  // Current cursor position is not exposed by Playwright — read the overlay dot.
+  // Current cursor position is not exposed by Playwright — read the fake cursor.
   const start = await page
-    .evaluate(() => {
-      const d = document.getElementById("pw-cursor-dot");
+    .evaluate((id) => {
+      const d = document.getElementById(id);
       if (!d || !d.style.left) return null;
       return { x: parseFloat(d.style.left), y: parseFloat(d.style.top) };
-    })
+    }, FAKE_CURSOR_ID)
     .catch(() => null)
     .then((p) => p ?? { x: x - 260, y: y + 180 });
   for (let i = 1; i <= steps; i++) {

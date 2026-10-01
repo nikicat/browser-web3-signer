@@ -77,6 +77,10 @@ jobs:
           npm install
           npx playwright install --with-deps chromium
 
+      - name: Type-check e2e TypeScript
+        working-directory: tests/e2e-browser
+        run: npm run typecheck
+
       - name: Run Playwright e2e
         working-directory: tests/e2e-browser
         run: npm test

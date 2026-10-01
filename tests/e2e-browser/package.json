@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "test": "playwright test",
+    "typecheck": "tsc -p .",
     "install": "playwright install chromium"
   },
   "devDependencies": {
-    "@playwright/test": "^1.48.0"
+    "@playwright/test": "^1.48.0",
+    "@types/chrome": "^0.3.4",
+    "@types/node": "^24.19.0",
+    "typescript": "^6.0.3"
   }
 }
