@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Cut a release: `just release [major|minor|patch|X.Y.Z]` (default: minor).
 #
-# From a clean, up-to-date master this bumps the lockstep version (Cargo.toml
+# From a clean, up-to-date main this bumps the lockstep version (Cargo.toml
 # [workspace.package] + the internal dep pins in [workspace.dependencies] +
 # ts/package.json + Cargo.lock) on a release/vX.Y.Z branch, pushes it, and opens a PR.
 #
 # Merging that PR IS the release: the Release workflow (release.yml) sees the version
-# bump land on master, creates the vX.Y.Z GitHub release on the merge commit (binaries +
+# bump land on main, creates the vX.Y.Z GitHub release on the merge commit (binaries +
 # SHA256SUMS), pushes the go/vX.Y.Z tag that versions the Go module, and publishes the
 # npm packages and crates.io crates. DRY_RUN=1 stops before pushing anything.
 set -euo pipefail
@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 
 level="${1:-minor}"
 
-[[ "$(git rev-parse --abbrev-ref HEAD)" == "master" ]] || { echo "run from master"; exit 1; }
+[[ "$(git rev-parse --abbrev-ref HEAD)" == "main" ]] || { echo "run from main"; exit 1; }
 git diff --quiet HEAD || { echo "dirty tree"; exit 1; }
 git pull --ff-only --quiet
 
@@ -45,7 +45,7 @@ git commit --quiet -am "Bump version to $version"
 
 if [[ "${DRY_RUN:-}" == "1" ]]; then
     echo "DRY_RUN: stopping before push; bump commit left on release/v$version"
-    echo "(undo: git checkout master && git branch -D release/v$version)"
+    echo "(undo: git checkout main && git branch -D release/v$version)"
     exit 0
 fi
 
@@ -53,7 +53,7 @@ git push -u origin "release/v$version"
 pr_url=$(gh pr create \
     --title "Bump version to $version" \
     --body "Merging this PR releases v$version: the Release workflow tags the merge commit, uploads binaries to the GitHub release, and publishes the npm packages and crates.io crates.")
-git checkout -q master
+git checkout -q main
 
 echo "release PR: $pr_url"
 echo "merge it (merge commit, not squash) once CI is green — the merge triggers the release."

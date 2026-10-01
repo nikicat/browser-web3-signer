@@ -266,7 +266,7 @@ child you spawned).
   lockfile sha512 integrity, registry mirrors, offline cache, `--ignore-scripts` immunity).
   Nothing is committed by the pipeline; versions are lockstep (npm == binary == tag). Cutting a
   release is one command — `just release [major|minor|patch|X.Y.Z]` (`scripts/release.sh`) bumps
-  the versions on master, waits for CI, and pushes the `vX.Y.Z` tag plus the `go/vX.Y.Z` tag that
+  the versions on main, waits for CI, and pushes the `vX.Y.Z` tag plus the `go/vX.Y.Z` tag that
   versions the Go module (a subdirectory module needs its own prefixed tag).
   *Go auto-install is deferred*: a Go module is served verbatim from the git tree, so shipping a
   binary means either committing artifacts or downloading at runtime — the plan, when warranted,
