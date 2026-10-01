@@ -533,7 +533,10 @@
         show($("msg-typed"));
       } else {
         hide($("msg-typed"));
-        $("msg-text").textContent = request.message;
+        // A `{ raw }` message is bytes, not text: show its hex and say so.
+        var raw = typeof request.message !== "string";
+        $("msg-label").textContent = raw ? "Raw bytes (hex)" : "Message";
+        $("msg-text").textContent = raw ? request.message.raw : request.message;
         show($("msg-plain"));
       }
       show($("msg-content"));

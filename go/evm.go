@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -49,13 +50,27 @@ type EVMSendTxParams struct {
 	MaxPriorityFeePerGas string `json:"maxPriorityFeePerGas,omitempty"`
 }
 
-// EVMSignMessageParams are the parameters for [EVMClient.SignMessage]. Message is plain
-// text (not hex-encoded).
+// The message [EVMClient.SignMessage] signs and who signs it; the message is Message or Raw,
+// never both.
 type EVMSignMessageParams struct {
-	Message string `json:"message"`
+	// Text, signed as its UTF-8 bytes.
+	Message string
+	// Bytes signed unchanged, such as a hash a Safe expects signed as-is; Message must be empty.
+	Raw     hexutil.Bytes
+	Address string
+	ChainID int64
+}
+
+// The wire shape of a sign_message request: Message is a string, or {"raw": "0x…"} for bytes.
+type signMessageRequest struct {
+	Type    string `json:"type"`
+	Message any    `json:"message"`
 	Address string `json:"address,omitempty"`
 	ChainID int64  `json:"chainId,omitempty"`
 }
+
+// Returned by [EVMClient.SignMessage] for params that set both Message and Raw.
+var errMessageAndRaw = errors.New("sign message: set Message or Raw, not both")
 
 // EVMSignTypedDataParams are the parameters for [EVMClient.SignTypedData] (EIP-712). The
 // domain/types/message sub-objects are open-ended.
@@ -102,13 +117,22 @@ func (c *EVMClient) SendTransaction(ctx context.Context, params EVMSendTxParams)
 	return parseResult(raw, ParseTxHash)
 }
 
-// SignMessage personal_signs a message and returns the signature.
+// Asks the wallet to personal_sign the message and returns the signature. Errors without
+// contacting the wallet when params sets both Message and Raw.
 func (c *EVMClient) SignMessage(ctx context.Context, params EVMSignMessageParams) (hexutil.Bytes, error) {
-	params.ChainID = c.evmChainID(params.ChainID)
-	raw, err := c.request(ctx, struct {
-		Type string `json:"type"`
-		EVMSignMessageParams
-	}{Type: "sign_message", EVMSignMessageParams: params})
+	if params.Message != "" && params.Raw != nil {
+		return nil, errMessageAndRaw
+	}
+	var message any = params.Message
+	if params.Raw != nil {
+		message = map[string]hexutil.Bytes{"raw": params.Raw}
+	}
+	raw, err := c.request(ctx, signMessageRequest{
+		Type:    "sign_message",
+		Message: message,
+		Address: params.Address,
+		ChainID: c.evmChainID(params.ChainID),
+	})
 	if err != nil {
 		return nil, err
 	}

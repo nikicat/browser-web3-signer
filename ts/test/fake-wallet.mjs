@@ -14,6 +14,8 @@ const FAKE_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const FAKE_TRON_ADDRESS = "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC";
 const FAKE_TX_HASH = "0x" + "ab".repeat(32);
 const FAKE_SIGNATURE = "0x" + "cd".repeat(65);
+// Answers a `{ raw }` sign_message, so tests can tell which message shape reached the bridge.
+const FAKE_RAW_SIGNATURE = "0x" + "ee".repeat(65);
 
 const url = process.argv[2];
 if (!url) {
@@ -39,6 +41,7 @@ function resultFor(request) {
       // Mirrors the real TRON UI's deploy result shape (see the Rust parse_deploy_result).
       return JSON.stringify({ txHash: FAKE_TX_HASH, contractAddress: FAKE_TRON_ADDRESS });
     case "sign_message":
+      return typeof request.message === "string" ? FAKE_SIGNATURE : FAKE_RAW_SIGNATURE;
     case "sign_typed_data":
       return FAKE_SIGNATURE;
     default:

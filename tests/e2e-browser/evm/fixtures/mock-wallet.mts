@@ -235,6 +235,7 @@ function installMockWallet(cfg: MockWalletConfig) {
       personal_sign: async (params) => {
         console.log("[MockWallet] personal_sign:", params);
         requireAuthorized(params[1]);
+        provider._signedMessages.push(params[0]);
         return "0x" + "cd".repeat(65);
       },
       eth_signTypedData_v4: async (params) => {
@@ -269,6 +270,8 @@ function installMockWallet(cfg: MockWalletConfig) {
       _permissionRequestCount: 0,
       _revokeCount: 0,
       _addedChains: [],
+      // personal_sign payloads, as the hex the page sent.
+      _signedMessages: [],
       selectedAddress: cfg.address,
       chainId: toHex(cfg.chainId),
       networkVersion: String(cfg.chainId),

@@ -66,6 +66,7 @@ const signer = new WalletSignerClient("evm", { defaultChainId: 1 });
 const address = await signer.connectWallet();
 const hash = await signer.sendTransaction({ to: "0x…", value: "1000000000000000000" });
 const sig = await signer.signMessage({ message: "hello" });
+const rawSig = await signer.signMessage({ message: { raw: "0x…" } }); // exact bytes, as in viem
 
 // viem:
 const { account, transport } = await connectWalletViem(signer);

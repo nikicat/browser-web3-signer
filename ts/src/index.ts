@@ -16,6 +16,7 @@ export {
   SignerErrorCode,
   type WalletSignerClientOptions,
   type SendTransactionParams,
+  type SignableMessage,
   type SignMessageParams,
   type SignTypedDataParams,
 } from "./client.ts";

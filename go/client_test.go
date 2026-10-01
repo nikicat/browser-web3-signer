@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +29,9 @@ const (
 )
 
 const hexPattern = `^0x[0-9a-fA-F]+$`
+
+// The fake wallet's answer to a {raw} sign_message, telling it apart from a text one.
+var fakeRawSignature = "0x" + strings.Repeat("ee", 65)
 
 // repoRoot returns the workspace root (one level up from this source file's dir).
 func repoRoot() string {
@@ -90,6 +94,16 @@ func TestEVMClient(t *testing.T) {
 		sig, err := client.SignMessage(ctx, EVMSignMessageParams{Message: "hello"})
 		require.NoError(t, err)
 		assert.Regexp(t, hexPattern, sig.String())
+	})
+
+	t.Run("SignMessageRaw", func(t *testing.T) {
+		hash := common.HexToHash("0x" + strings.Repeat("ff", 32))
+		sig, err := client.SignMessage(ctx, EVMSignMessageParams{Raw: hash.Bytes()})
+		require.NoError(t, err)
+		assert.Equal(t, fakeRawSignature, sig.String())
+
+		_, err = client.SignMessage(ctx, EVMSignMessageParams{Message: "x", Raw: hash.Bytes()})
+		assert.ErrorIs(t, err, errMessageAndRaw)
 	})
 
 	t.Run("SignTypedData", func(t *testing.T) {

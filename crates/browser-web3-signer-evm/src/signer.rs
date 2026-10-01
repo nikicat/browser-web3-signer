@@ -5,7 +5,7 @@ use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Prepared, Signer
 
 use crate::config;
 use crate::domain::{Address, ChainId, Signature, TxHash};
-use crate::types::{EvmRequest, SendTransactionParams, TypedData};
+use crate::types::{EvmRequest, SendTransactionParams, SignableMessage, TypedData};
 
 type Result<T> = std::result::Result<T, SignerError>;
 
@@ -92,7 +92,7 @@ impl EvmSigner {
     /// `personal_sign` a message, returning the signature.
     pub async fn sign_message(
         &self,
-        message: String,
+        message: SignableMessage,
         address: Option<Address>,
         chain_id: Option<ChainId>,
     ) -> Result<Signature> {

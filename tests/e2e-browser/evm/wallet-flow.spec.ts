@@ -648,6 +648,22 @@ test.describe("Message Signing", () => {
     expect(result?.error).toContain("rejected");
   });
 
+  test("signs a { raw } message as its bytes, not its hex text", async ({ browser }) => {
+    await using ctx = await walletContext(browser);
+    const page = await ctx.newPage();
+    const hash = "0x" + "ff".repeat(32);
+    const { id } = await createTestRequest("sign_message", { message: { raw: hash }, chainId: TEST_CHAIN_ID });
+
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await expect(page.locator("#msg-label")).toHaveText("Raw bytes (hex)");
+    await expect(page.locator("#msg-text")).toHaveText(hash);
+    await page.getByRole("button", { name: "Sign" }).click();
+    await expect(page.getByText("Signed Successfully!")).toBeVisible({ timeout: 10000 });
+
+    expect(await page.evaluate(() => (window as any).ethereum._signedMessages)).toEqual([hash]);
+    expect((await getTestResult(id))?.success).toBe(true);
+  });
+
   test("signs EIP-712 typed data", async ({ browser }) => {
     await using ctx = await walletContext(browser);
     const page = await ctx.newPage();

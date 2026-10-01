@@ -569,7 +569,7 @@
           <!-- message content -->
           <div id="msg-content" class="message-box hidden">
             <div id="msg-plain" class="hidden">
-              <div class="message-label">Message</div>
+              <div id="msg-label" class="message-label">Message</div>
               <div id="msg-text" class="message-content"></div>
             </div>
             <div id="msg-typed" class="hidden">
@@ -854,6 +854,17 @@
           return parseInt(hex, 16);
         }
 
+        /**
+         * Returns the `personal_sign` payload for a request's message: the UTF-8 bytes of text as
+         * hex, or a `{ raw }` message's hex unchanged.
+         */
+        function messageHex(message) {
+          if (typeof message !== "string") return message.raw;
+          return "0x" + Array.from(new TextEncoder().encode(message)).map(function (b) {
+            return b.toString(16).padStart(2, "0");
+          }).join("");
+        }
+
         /** Returns `n` (a number or decimal string) as an EIP-1474 hex quantity. */
         function toQuantity(n) {
           return "0x" + BigInt(n).toString(16);
@@ -1026,10 +1037,7 @@
           },
           signMessage: async function (request, address) {
             await ensureChain(request);
-            var hex = "0x" + Array.from(new TextEncoder().encode(request.message)).map(function (b) {
-              return b.toString(16).padStart(2, "0");
-            }).join("");
-            return rpc("personal_sign", [hex, address]);
+            return rpc("personal_sign", [messageHex(request.message), address]);
           },
           signTypedData: async function (request, address) {
             await ensureChain(request);
