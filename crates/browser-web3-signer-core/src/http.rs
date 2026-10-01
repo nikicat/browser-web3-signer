@@ -4,8 +4,9 @@
 //! Routes:
 //! - `GET  /api/pending/{id}`  → `{ "request": <R> }`
 //! - `POST /api/complete/{id}` → resolves the pending request
-//! - `GET  /api/health`       → `{ "status": "ok", "pendingRequests": N }`
+//! - `GET  /api/health`       → `{ "status": "ok", "pendingRequests": N, "version": "v0.5.0-…" }`
 //! - `GET  /app-core.js`      → the shared, chain-agnostic UI engine (both pages `<script src>` it)
+//! - `GET  /app-core.css`     → the shared page styles (both pages `<link>` it, setting their brand)
 //! - everything else          → the embedded SPA HTML (in-page router handles `/sign/:id` etc.)
 
 use axum::{
@@ -33,6 +34,14 @@ use crate::types::{CompleteApiRequest, PendingApiResponse, Request};
 /// build step and embed the emitted `.js`. Kept as hand-written JS for now so `include_str!` works
 /// in the Node-less CI build with no extra toolchain.
 pub const APP_CORE_JS: &str = include_str!("../web/app-core.js");
+
+/// The approval pages' shared styles, served at `/app-core.css`; each page sets only its brand
+/// colour through CSS variables.
+pub const APP_CORE_CSS: &str = include_str!("../web/app-core.css");
+
+/// The build's `git describe` (`v0.5.0-2-g8fa5983-dirty`), or the package version outside a
+/// git checkout; the approval pages show it so a report names the exact build.
+pub const VERSION: &str = env!("BWS_VERSION");
 
 /// Shared state for the HTTP handlers.
 pub struct AppState<R: Request> {
@@ -85,6 +94,7 @@ pub fn build_router_with<R: Request>(
         .route("/api/complete/{id}", post(post_complete::<R>))
         .route("/api/health", get(get_health::<R>))
         .route("/app-core.js", get(serve_app_core))
+        .route("/app-core.css", get(serve_app_core_css))
         .fallback(serve_index::<R>)
         .layer(cors_layer())
         .with_state(state);
@@ -123,8 +133,12 @@ async fn post_complete<R: Request>(
 }
 
 async fn get_health<R: Request>(State(state): State<AppState<R>>) -> Response {
-    Json(serde_json::json!({ "status": "ok", "pendingRequests": state.store.len() }))
-        .into_response()
+    Json(serde_json::json!({
+        "status": "ok",
+        "pendingRequests": state.store.len(),
+        "version": VERSION,
+    }))
+    .into_response()
 }
 
 async fn serve_app_core() -> Response {
@@ -137,6 +151,17 @@ async fn serve_app_core() -> Response {
             (header::CACHE_CONTROL, "no-cache"),
         ],
         APP_CORE_JS,
+    )
+        .into_response()
+}
+
+async fn serve_app_core_css() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        APP_CORE_CSS,
     )
         .into_response()
 }

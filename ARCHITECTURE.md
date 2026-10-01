@@ -22,7 +22,7 @@ back. The HTTP bridge binds `127.0.0.1` exclusively.
 
 ```
 crates/
-  browser-web3-signer-core/   chain-agnostic engine (lib); web/app-core.js shared UI core
+  browser-web3-signer-core/   chain-agnostic engine (lib); web/app-core.{js,css} shared UI core
   browser-web3-signer-evm/    EVM requests, domain types, embedded UI in web/evm.html (lib)
   browser-web3-signer-tron/   TRON requests, domain types, embedded UI in web/tron.html (lib)
   browser-web3-signer/        the `browser-web3-signer` binary (one-shot CLI)
@@ -163,9 +163,11 @@ propagate only on explicit Reject/Cancel) — lives once in
 [`app-core.js`](crates/browser-web3-signer-core/web/app-core.js), owned by the core crate.
 The core crate embeds it with `include_str!` and serves it at `GET /app-core.js` from
 `build_router` (so every bridge — CLI, `serve`, and the e2e harnesses — exposes it). Both pages
-load it via `<script src="/app-core.js">` and call `WalletSignerCore.init(adapter)`.
+load it via `<script src="/app-core.js">` and call `WalletSignerCore.init(adapter)`. Their styles
+are shared the same way: [`app-core.css`](crates/browser-web3-signer-core/web/app-core.css), served
+at `GET /app-core.css`, with each page setting only its brand colour as CSS variables.
 
-Each page is now only its markup + styles plus a thin chain **adapter**: the wallet operations
+Each page is now only its markup + brand colour plus a thin chain **adapter**: the wallet operations
 (`connect` via `requestAccounts`/`onConnected`, `sendTx`, `signMessage`, `signTypedData`),
 wallet presence/identity, `addressMatch` (case-insensitive for EVM 0x-hex, case-sensitive for
 TRON Base58), and the chain-specific slices of presentation (badge text, `renderTxDetails`,
