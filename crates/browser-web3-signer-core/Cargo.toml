@@ -21,6 +21,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 opener = "0.8"
 hex = "0.4"
+git-version = "0.3"
 url = { version = "2", features = ["serde"] }
 
 [dev-dependencies]

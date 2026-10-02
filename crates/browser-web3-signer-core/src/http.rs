@@ -4,7 +4,7 @@
 //! Routes:
 //! - `GET  /api/pending/{id}`  → `{ "request": <R> }`
 //! - `POST /api/complete/{id}` → resolves the pending request
-//! - `GET  /api/health`       → `{ "status": "ok", "pendingRequests": N, "version": "v0.5.0-…" }`
+//! - `GET  /api/health`       → `{ "status": "ok", "pendingRequests": N, "version": "v0.6.1-…" }`
 //! - `GET  /app-core.js`      → the shared, chain-agnostic UI engine (both pages `<script src>` it)
 //! - `GET  /app-core.css`     → the shared page styles (both pages `<link>` it, setting their brand)
 //! - everything else          → the embedded SPA HTML (in-page router handles `/sign/:id` etc.)
@@ -39,9 +39,15 @@ pub const APP_CORE_JS: &str = include_str!("../web/app-core.js");
 /// colour through CSS variables.
 pub const APP_CORE_CSS: &str = include_str!("../web/app-core.css");
 
-/// The build's `git describe` (`v0.5.0-2-g8fa5983-dirty`), or the package version outside a
-/// git checkout; the approval pages show it so a report names the exact build.
-pub const VERSION: &str = env!("BWS_VERSION");
+/// The build's version, shown by the approval pages and `--version` so a report names the build.
+///
+/// It is `git describe` in the repo (`v0.6.1`, `v0.6.1-2-g8fa5983-dirty`), else `v` + the package
+/// version (a crates.io build, a checkout without tags). A release build reads the same either
+/// way: the Release workflow refuses a tag that differs from the package version.
+pub const VERSION: &str = git_version::git_version!(
+    args = ["--tags", "--match", "v*", "--dirty"],
+    fallback = concat!("v", env!("CARGO_PKG_VERSION")),
+);
 
 /// Shared state for the HTTP handlers.
 pub struct AppState<R: Request> {

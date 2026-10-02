@@ -9,6 +9,7 @@ mod output;
 mod serve;
 mod tron;
 
+use browser_web3_signer_core::http::VERSION;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 /// Shared CLI context derived from the global options.
@@ -40,7 +41,7 @@ impl std::str::FromStr for JsonString {
 
 /// Browser-based web3 wallet signing from the command line.
 #[derive(Debug, Parser)]
-#[command(name = "browser-web3-signer", version, about, long_about = None)]
+#[command(name = "browser-web3-signer", version = VERSION, about, long_about = None)]
 struct Cli {
     #[command(flatten)]
     global: GlobalOpts,

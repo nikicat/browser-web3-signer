@@ -267,9 +267,12 @@ child you spawned).
   over install-script or first-run downloads because the binary rides npm's own machinery:
   lockfile sha512 integrity, registry mirrors, offline cache, `--ignore-scripts` immunity).
   Nothing is committed by the pipeline; versions are lockstep (npm == binary == tag). Cutting a
-  release is one command — `just release [major|minor|patch|X.Y.Z]` (`scripts/release.sh`) bumps
-  the versions on main, waits for CI, and pushes the `vX.Y.Z` tag plus the `go/vX.Y.Z` tag that
-  versions the Go module (a subdirectory module needs its own prefixed tag).
+  release is one command — `just release [major|minor|patch|X.Y.Z]` (`scripts/release.sh`) commits
+  the version bump to main (or a `release/*` branch for a maintenance release) and pushes it with
+  the `vX.Y.Z` tag. The tag push starts the workflow, which checks the tag against the versions
+  and the branch, runs CI, and pushes the `go/vX.Y.Z` tag that versions the Go module (a
+  subdirectory module needs its own prefixed tag). Only admins may create `v*` tags (a tag
+  ruleset), and the publishing jobs run in a `release` environment that only `v*` tags reach.
   *Go auto-install is deferred*: a Go module is served verbatim from the git tree, so shipping a
   binary means either committing artifacts or downloading at runtime — the plan, when warranted,
   is a runtime download verified against a committed per-release SHA-256 table

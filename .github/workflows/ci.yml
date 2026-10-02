@@ -4,6 +4,7 @@ on:
   push:
     branches: ['**']
   pull_request:
+  workflow_call: # the Release workflow gates publishing on it
 
 env:
   CARGO_TERM_COLOR: always
