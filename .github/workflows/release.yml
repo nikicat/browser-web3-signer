@@ -219,7 +219,9 @@ jobs:
       contents: read
       id-token: write # npm provenance
     env:
-      VERSION: ${{ needs.preflight.outputs.version }}
+      # npm's dry run refuses an already-published version, which a rehearsal's always is, so a
+      # rehearsal packs an unpublished prerelease of it instead.
+      VERSION: ${{ needs.preflight.outputs.dry_run == 'true' && format('{0}-rehearsal.{1}', needs.preflight.outputs.version, github.run_id) || needs.preflight.outputs.version }}
       DRY_RUN: ${{ needs.preflight.outputs.dry_run }}
     steps:
       - uses: actions/checkout@v7
@@ -251,7 +253,7 @@ jobs:
           for dir in pkgs/*/; do
             NAME=$(jq -r .name "$dir/package.json")
             if [ "$DRY_RUN" = 'true' ]; then
-              npm publish --dry-run --access public "$dir"
+              npm publish --dry-run --tag rehearsal --access public "$dir"
             elif npm view "$NAME@$VERSION" version > /dev/null 2>&1; then
               echo "$NAME@$VERSION already published, skipping"
             else
@@ -275,8 +277,9 @@ jobs:
           # Inject after `npm ci` (it would reject a package.json/lockfile mismatch) and
           # never commit: the platform packages exist on npm, not in the repo.
           node ../scripts/npm-platform.mjs inject "$VERSION" package.json
+          npm pkg set version="$VERSION" # a no-op except on a rehearsal
           if [ "$DRY_RUN" = 'true' ]; then
-            npm publish --dry-run --access public
+            npm publish --dry-run --tag rehearsal --access public
           elif npm view "browser-web3-signer@$VERSION" version > /dev/null 2>&1; then
             echo "browser-web3-signer@$VERSION already published, skipping"
           else
