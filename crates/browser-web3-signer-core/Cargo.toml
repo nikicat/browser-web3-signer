@@ -19,7 +19,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-opener = "0.8"
+opener = "0.9"
 hex = "0.4"
 git-version = "0.3"
 url = { version = "2", features = ["serde"] }
