@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      cargo: { patterns: ["*"] }
+
+  - package-ecosystem: npm
+    directories:
+      - /ts
+      - /scripts/tron
+      - /tests/e2e-browser
+      - /tests/e2e-browser/demo-ambire/remotion
+    schedule: { interval: weekly }
+    groups:
+      npm: { patterns: ["*"] }
+
+  - package-ecosystem: gomod
+    directory: /go
+    schedule: { interval: weekly }
+    groups:
+      gomod: { patterns: ["*"] }
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      github-actions: { patterns: ["*"] }
