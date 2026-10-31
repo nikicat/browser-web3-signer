@@ -154,7 +154,7 @@ jobs:
       - name: Build the signer binary
         run: cargo build --bin browser-web3-signer --locked
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go/go.mod
 
