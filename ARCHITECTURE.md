@@ -25,6 +25,7 @@ crates/
   browser-web3-signer-core/   chain-agnostic engine (lib); web/app-core.{js,css} shared UI core
   browser-web3-signer-evm/    EVM requests, domain types, embedded UI in web/evm.html (lib)
   browser-web3-signer-tron/   TRON requests, domain types, embedded UI in web/tron.html (lib)
+  browser-web3-signer-btc/    Bitcoin requests, domain types, embedded UI in web/btc.html (lib)
   browser-web3-signer/        the `browser-web3-signer` binary (one-shot CLI)
 ts/                           TypeScript binding (viem transport + hybrid account over `serve`)
 go/                           Go binding (go-ethereum-typed client over `serve`)
@@ -121,9 +122,12 @@ explicitly, which reads better than `Arc::clone(&x)` everywhere and keeps
 
 ### Per-chain crates, shared core
 
-The core is fully chain-agnostic. EVM and TRON each provide their request enum, domain
+The core is fully chain-agnostic. EVM, TRON and Bitcoin each provide their request enum, domain
 types, embedded UI, and a typed signer over `Engine`. Adding a chain means a new crate, not
-changes to core.
+changes to core. Bitcoin was the first chain added this way; its design (Unisat, PSBTs,
+rust-bitcoin domain types, the returned-PSBT txid check) is recorded in
+[ADR 0001](docs/adr/0001-bitcoin-support.md). The `FromStr` error type and the request-JSON
+field readers every chain's `from_json` uses live in core's `parse` module.
 
 ### No read side: reads belong to the caller
 
@@ -196,7 +200,7 @@ hand-written JS for now so `include_str!` needs no toolchain in the Node-less CI
 
 CI (`.github/workflows/ci.yml`) runs five jobs on every push and pull request: the main
 `ci` job (fmt + taplo + `clippy -D warnings` + build + test on an Arch container, toolchain
-pinned by `rust-toolchain.toml`); an `e2e` job that builds the `evm-harness`/`tron-harness`
+pinned by `rust-toolchain.toml`); an `e2e` job that builds the `evm-harness`/`tron-harness`/`btc-harness`
 binaries (`--features e2e`), installs Chromium, and runs the Playwright mock-wallet suite
 against the real Rust bridge; a `ts-binding` job that builds the signer binary, then
 typechecks and tests the [TypeScript binding](ts) against the real `serve` subprocess; a
@@ -287,7 +291,7 @@ child you spawned).
   single consumer a persistent session. The `start_with` / `build_router_with` extension point
   (above) is the seam this would mount on if built.
 - **Phase 6 — tests & docs.** Integration tests and a Playwright mock-wallet e2e against the
-  Rust bridge (✅ EVM + TRON, in [`tests/e2e-browser`](tests/e2e-browser)), plus expanded docs.
-  The e2e suite drives the real bridge through feature-gated harness binaries (`evm-harness`,
-  `tron-harness`, sharing generic plumbing) that mount test-only routes via the `start_with`
+  Rust bridge (✅ EVM + TRON + Bitcoin, in [`tests/e2e-browser`](tests/e2e-browser)), plus expanded
+  docs. The e2e suite drives the real bridge through feature-gated harness binaries (`evm-harness`,
+  `tron-harness`, `btc-harness`, sharing generic plumbing) that mount test-only routes via the `start_with`
   extension point above.

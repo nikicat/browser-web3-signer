@@ -8,11 +8,31 @@ serves.
 
 - **EVM** — `evm/` (22 tests), driven by the `evm-harness` binary + an EIP-6963 / `window.ethereum` mock.
 - **TRON** — `tron/` (19 tests), driven by the `tron-harness` binary + a TronLink (`window.tronWeb`) mock.
+- **Bitcoin** — `btc/` (20 tests), driven by the `btc-harness` binary + Unisat (`window.unisat`) and
+  Leather (`window.LeatherProvider`) mocks.
+
+### Real-wallet Bitcoin suite (`btc-leather/`)
+
+The one suite that uses a **real wallet**: the actual `browser-web3-signer btc …` CLI, the real
+Leather extension (headless), and a throwaway regtest chain. Each test runs a CLI command, opens its
+approval URL in the Leather browser, approves Leather's popup, and checks the CLI's output against
+the node (`testmempoolaccept`, mempool lookups) and bip322-js.
+
+- **Chain:** `fixtures/regtest.mts` spawns `bitcoind -regtest` (must be on `PATH`) and serves the
+  Esplora endpoints Leather reads a custom network through, straight from bitcoind's RPC. Paths it
+  doesn't implement answer 404 and are logged as `[esplora] unimplemented`.
+- **Wallet:** `fixtures/leather-state.mts` seeds a signed-in test wallet plus a custom `regtest`
+  network, the way Leather's own suite skips onboarding. Every other host is refused, except a few
+  Leather API endpoints its screens wait on (fees, prices), answered locally in `fixtures/leather.mts`.
+  `LEATHER_E2E_DEBUG=1` logs refused requests and the popups' console errors.
+- **Extension:** Leather ships no built artifacts, so `scripts/build-leather.sh` builds the pinned
+  release in test mode into `target/leather` (`just e2e-leather-build`). The suite skips unless
+  `LEATHER_EXT_DIR` points at the build; `just e2e-leather` builds and runs it.
 
 ## How it works
 
 ```
-Playwright (Node)                     Rust {evm,tron}-harness binary
+Playwright (Node)                     Rust {evm,tron,btc}-harness binary
   │  spawn ────────────────────────►  Engine<R> + embedded HTML
   │  ◄──── prints bound port           + test-only routes:
   │                                       POST /api/test/create-request  → {id}
@@ -31,7 +51,7 @@ test is identical to what a real wallet sees.
 
 The harness plumbing is generic over the chain's request type and shared in
 [`common/harness.rs`](../../crates/browser-web3-signer/src/bin/common/harness.rs); each
-`{evm,tron}_harness.rs` binary supplies only a `build_request` mapping the test JSON into its
+`{evm,tron,btc}_harness.rs` binary supplies only a `build_request` mapping the test JSON into its
 request enum.
 
 The result endpoint bridges a semantic gap: the engine delivers a result through a `oneshot`
