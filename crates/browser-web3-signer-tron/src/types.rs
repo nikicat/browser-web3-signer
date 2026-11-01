@@ -1,6 +1,7 @@
 //! TRON request types. JSON serialization must match what the embedded UI fetches from
 //! `GET /api/pending/:id` (ported from `browser-tron-signer/src/types.ts`).
 
+use browser_web3_signer_core::parse::{opt_parsed, req_parsed, str_field};
 use browser_web3_signer_core::{HexData, Request, RequestMeta, UrlKind};
 use serde::Serialize;
 use uuid::Uuid;
@@ -358,42 +359,11 @@ impl TronRequest {
     }
 }
 
-/// Read a required string field, or a "missing/!string" reason.
-fn str_field<'a>(body: &'a serde_json::Value, key: &str) -> Result<&'a str, String> {
-    body.get(key)
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| format!("missing or non-string field '{key}'"))
-}
-
 /// Read an open-ended JSON sub-object, defaulting to `{}` when absent (for TIP-712 parts).
 fn json_field(body: &serde_json::Value, key: &str) -> serde_json::Value {
     body.get(key)
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}))
-}
-
-/// Parse a required string field into a domain type `T`, mapping failures to a reason.
-fn req_parsed<T>(body: &serde_json::Value, key: &str) -> Result<T, String>
-where
-    T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
-{
-    str_field(body, key)?
-        .parse::<T>()
-        .map_err(|e| format!("invalid '{key}': {e}"))
-}
-
-/// Parse an optional string field into a domain type `T`; `None` if absent, error if present but
-/// unparseable.
-fn opt_parsed<T>(body: &serde_json::Value, key: &str) -> Result<Option<T>, String>
-where
-    T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
-{
-    body.get(key)
-        .and_then(serde_json::Value::as_str)
-        .map(|s| s.parse::<T>().map_err(|e| format!("invalid '{key}': {e}")))
-        .transpose()
 }
 
 #[cfg(test)]
