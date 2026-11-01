@@ -1,7 +1,7 @@
 /**
  * Shared harness driver for the e2e browser tests.
  *
- * Spawns a Rust harness binary (`evm-harness` / `tron-harness`, built with
+ * Spawns a Rust harness binary (`evm-harness` / `tron-harness` / `btc-harness`, built with
  * `cargo build --features e2e`) instead of an in-process Deno server. The harness prints its
  * bound port to stdout; we read that and expose the same API the reference `test-server.mts`
  * did, so the per-chain specs stay byte-compatible with the upstream suite.
@@ -42,7 +42,9 @@ export type RequestType =
   | "trigger_contract"
   | "deploy_contract"
   | "sign_message"
-  | "sign_typed_data";
+  | "sign_typed_data"
+  | "send_transfer"
+  | "sign_psbt";
 
 export interface TestResult {
   success: boolean;

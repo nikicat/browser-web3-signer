@@ -70,7 +70,7 @@ jobs:
           restore-keys: ${{ runner.os }}-e2e-
 
       - name: Build e2e harnesses
-        run: cargo build --bin evm-harness --bin tron-harness --features e2e --locked
+        run: cargo build --bin evm-harness --bin tron-harness --bin btc-harness --features e2e --locked
 
       - name: Install Node deps + Chromium
         working-directory: tests/e2e-browser

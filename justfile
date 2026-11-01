@@ -59,7 +59,7 @@ coverage-clean:
 
 # Build the e2e harness binaries (debug is fast enough for tests).
 e2e-build:
-    cargo build --bin evm-harness --bin tron-harness --features e2e
+    cargo build --bin evm-harness --bin tron-harness --bin btc-harness --features e2e
 
 # One-time e2e setup: install Node deps and download Chromium.
 e2e-setup:
