@@ -59,7 +59,7 @@ coverage-clean:
 
 # Build the e2e harness binaries (debug is fast enough for tests).
 e2e-build:
-    cargo build --bin evm-harness --bin tron-harness --features e2e
+    cargo build --bin evm-harness --bin tron-harness --bin btc-harness --features e2e
 
 # One-time e2e setup: install Node deps and download Chromium.
 e2e-setup:
@@ -90,3 +90,13 @@ manual-test-evm: build
 # Requires docker, node >= 22.6, forge, jq. You approve each step in TronLink.
 manual-test-tron: build
     ./scripts/manual-test-tron.sh
+
+# Build the pinned Leather release (test mode) into target/leather for the real-wallet Bitcoin e2e.
+# Requires node >= 22.15 and pnpm; the first build takes a while.
+e2e-leather-build:
+    ./scripts/build-leather.sh
+
+# Real-wallet Bitcoin e2e: the CLI against the real Leather extension on a throwaway regtest chain.
+# Requires bitcoind on PATH and `just e2e-leather-build`.
+e2e-leather: build e2e-leather-build
+    cd tests/e2e-browser && LEATHER_EXT_DIR="$PWD/../../target/leather/apps/extension/dist" npx playwright test btc-leather

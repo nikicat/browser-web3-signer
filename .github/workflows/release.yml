@@ -79,7 +79,7 @@ jobs:
           [ "$TS_VERSION" = "$VERSION" ] || { echo "::error::ts/package.json version $TS_VERSION != tag $TAG"; exit 1; }
           # The internal path deps carry the version published crates depend on;
           # release.sh bumps them in lockstep, so a mismatch means a hand-edited bump.
-          if grep -E 'browser-web3-signer-(core|evm|tron) = \{ path' Cargo.toml | grep -vq "version = \"$VERSION\""; then
+          if grep -E 'browser-web3-signer-(core|evm|tron|btc) = \{ path' Cargo.toml | grep -vq "version = \"$VERSION\""; then
             echo "::error::internal dep pins in [workspace.dependencies] are not at $VERSION"; exit 1
           fi
 
@@ -321,7 +321,7 @@ jobs:
         id: todo
         run: |
           todo=""
-          for crate in browser-web3-signer-core browser-web3-signer-evm browser-web3-signer-tron browser-web3-signer; do
+          for crate in browser-web3-signer-core browser-web3-signer-evm browser-web3-signer-tron browser-web3-signer-btc browser-web3-signer; do
             prefix="${crate:0:2}/${crate:2:2}"
             if curl -sSf "https://index.crates.io/$prefix/$crate" 2> /dev/null | grep -q "\"vers\":\"$VERSION\""; then
               echo "$crate@$VERSION already published, skipping"
@@ -337,7 +337,7 @@ jobs:
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
 
-      # Dependency order (core -> evm/tron -> cli); cargo waits for each published
+      # Dependency order (core -> evm/tron/btc -> cli); cargo waits for each published
       # crate to appear in the index before the next publish resolves it.
       - name: Publish
         if: steps.todo.outputs.crates != ''

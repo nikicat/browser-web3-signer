@@ -2,12 +2,13 @@
 //! open the browser (unless `--print`), await the wallet's response, and (optionally) parse it
 //! into a domain type.
 //!
-//! [`browser_web3_signer_core::Prepared`] is chain-agnostic, so this works for EVM and TRON alike.
+//! [`browser_web3_signer_core::Prepared`] is chain-agnostic, so this works for every chain alike.
 
 use std::fmt::Display;
 use std::str::FromStr;
 
 use anyhow::Result;
+use browser_web3_signer_btc::BtcSigner;
 use browser_web3_signer_core::{Prepared, Url};
 use browser_web3_signer_evm::EvmSigner;
 use browser_web3_signer_tron::TronSigner;
@@ -29,6 +30,12 @@ impl ApprovalOpener for EvmSigner {
 }
 
 impl ApprovalOpener for TronSigner {
+    fn open_url(&self, url: &Url) {
+        self.open(url);
+    }
+}
+
+impl ApprovalOpener for BtcSigner {
     fn open_url(&self, url: &Url) {
         self.open(url);
     }

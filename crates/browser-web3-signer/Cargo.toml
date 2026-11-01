@@ -26,6 +26,11 @@ name = "tron-harness"
 path = "src/bin/tron_harness.rs"
 required-features = ["e2e"]
 
+[[bin]]
+name = "btc-harness"
+path = "src/bin/btc_harness.rs"
+required-features = ["e2e"]
+
 [features]
 # The e2e harness binaries need the pending-request id type; the control API (always built)
 # already pulls in axum.
@@ -35,6 +40,7 @@ e2e = ["uuid"]
 browser-web3-signer-core = { workspace = true }
 browser-web3-signer-evm = { workspace = true }
 browser-web3-signer-tron = { workspace = true }
+browser-web3-signer-btc = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
