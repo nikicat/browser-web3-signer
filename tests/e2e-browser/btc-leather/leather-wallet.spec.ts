@@ -166,6 +166,9 @@ test("a rejection in Leather stays in-page; Reject reaches the CLI", async () =>
   await page.getByRole("button", { name: "Sign", exact: true }).click();
   await approve(leather, cancel);
   await expect(page.locator("#msg-err")).toBeVisible({ timeout: 10000 });
+  // Handle the CLI's exit before clicking: it can exit before click() returns, and an unhandled
+  // rejection fails the test.
+  const rejected = expect(output).rejects.toThrow(/rejected/i);
   await page.getByRole("button", { name: "Reject" }).click();
-  await expect(output).rejects.toThrow(/rejected/i);
+  await rejected;
 });
