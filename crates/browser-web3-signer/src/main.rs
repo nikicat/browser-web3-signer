@@ -3,6 +3,7 @@
 //! Each command (one-shot) opens a local browser page where the user approves the operation in
 //! their own wallet, then prints the result. The private key never leaves the browser.
 
+mod btc;
 mod evm;
 mod flow;
 mod output;
@@ -124,6 +125,11 @@ enum Command {
         #[command(subcommand)]
         cmd: tron::TronCommand,
     },
+    /// Bitcoin (mainnet, testnets, signet, regtest) via Unisat or Leather.
+    Btc {
+        #[command(subcommand)]
+        cmd: btc::BtcCommand,
+    },
     /// Run the long-lived control API for a single chain (for language bindings).
     ///
     /// Holds the bridge on a stable port for the process lifetime and exposes
@@ -144,6 +150,8 @@ enum Chain {
     Evm,
     /// TRON via TronLink.
     Tron,
+    /// Bitcoin via Unisat.
+    Btc,
 }
 
 #[tokio::main]
@@ -165,6 +173,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::Evm { cmd } => evm::run(cmd, ctx).await,
         Command::Tron { cmd } => tron::run(cmd, ctx).await,
+        Command::Btc { cmd } => btc::run(cmd, ctx).await,
         Command::Serve { chain } => run_serve(chain, &ctx).await,
     }
 }
@@ -187,6 +196,14 @@ async fn run_serve(chain: Chain, ctx: &CliContext) -> anyhow::Result<()> {
             serve::run::<browser_web3_signer_tron::TronRequest>(
                 browser_web3_signer_tron::WEB_UI,
                 BindPort::Preferred(browser_web3_signer_tron::port()),
+                browser,
+            )
+            .await
+        }
+        Chain::Btc => {
+            serve::run::<browser_web3_signer_btc::BtcRequest>(
+                browser_web3_signer_btc::WEB_UI,
+                BindPort::Preferred(browser_web3_signer_btc::port()),
                 browser,
             )
             .await

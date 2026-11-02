@@ -102,7 +102,7 @@ binary at `target/release/browser-web3-signer`.
 ### Usage
 
 ```sh
-browser-web3-signer <evm|tron> <command> [flags]
+browser-web3-signer <evm|tron|btc> <command> [flags]
 ```
 
 Global flags (any command): `--browser <name>` (open a specific browser instead of the
@@ -137,6 +137,23 @@ browser-web3-signer tron deploy-contract --abi-file ./abi.json --bytecode 0x…
 
 Networks: `mainnet`, `shasta`, `nile`. Signing and transaction building happen browser-side
 in TronLink's `tronWeb`; the Rust side only routes requests.
+
+#### Bitcoin
+
+```sh
+browser-web3-signer btc connect --network signet
+browser-web3-signer btc send --to bc1… --amount 15000 --fee-rate 3     # sats (1 BTC = 1e8 sats)
+browser-web3-signer btc sign-psbt --psbt-file ./tx.psbt --sign-input 0  # hex or base64
+browser-web3-signer btc sign-psbt --psbt cHNidP8… --broadcast
+browser-web3-signer btc sign-message --message "hello"                   # BIP-322; --protocol ecdsa
+```
+
+Networks: `mainnet`, `testnet`, `testnet4`, `signet`, `regtest` (Leather only). Wallets: Unisat,
+Leather.
+`send` lets the wallet pick coins and the fee; for anything else, build a PSBT yourself and
+`sign-psbt` it. Addresses are checked against the network before the wallet sees them, and a
+signed PSBT is rejected unless it's for the same transaction you sent. See
+[ADR 0001](docs/adr/0001-bitcoin-support.md).
 
 #### Serve (control API for language bindings)
 
@@ -292,6 +309,8 @@ All interfaces read the same environment variables:
 | `BROWSER_WEB3_EVM_CHAIN` | `1` | Default EVM chain id |
 | `BROWSER_WEB3_TRON_PORT` | `3848` | Preferred bridge port for TRON |
 | `BROWSER_WEB3_TRON_NETWORK` | `mainnet` | Default TRON network |
+| `BROWSER_WEB3_BTC_PORT` | `3849` | Preferred bridge port for Bitcoin |
+| `BROWSER_WEB3_BTC_NETWORK` | `mainnet` | Default Bitcoin network |
 | `BROWSER` | — | Browser binary to open (else OS default) |
 | `BROWSER_WEB3_SIGNER_BIN` | — | Explicit signer-binary path for the language bindings |
 
@@ -334,12 +353,14 @@ just coverage   # cargo-llvm-cov summary
 rationale behind the key decisions.
 
 **E2E browser tests**: a Playwright suite drives a mock wallet against the real Rust bridge
-for both EVM and TRON — connect, sign, send/trigger/deploy, reject, cancel, address
+for EVM, TRON and Bitcoin — connect, sign, send/trigger/deploy/PSBT, reject, cancel, address
 mismatch — on every push and PR. Run with `just e2e-setup && just e2e`.
 
 **Manual real-wallet tests**: scripted walkthroughs drive your *real* wallet extension
 against a throwaway local chain (anvil for EVM, a `tronbox/tre` Docker node for TRON) and
-verify every result on-chain — no testnet, no real funds. See
+verify every result on-chain — no testnet, no real funds.
+Bitcoin needs no manual run: `just e2e-leather` drives the real Leather extension against a
+throwaway regtest chain, fully automated. See
 [docs/manual-testing.md](docs/manual-testing.md).
 
 ## Status
@@ -347,6 +368,12 @@ verify every result on-chain — no testnet, no real funds. See
 All four interfaces cover **EVM and TRON** end to end: connect, send/trigger/deploy,
 message + typed-data signing, with an embedded approval UI per chain. Releases are
 lockstep across the GitHub binaries, crates.io, npm, and the Go module tag.
+
+**Bitcoin** (Unisat, Leather) is in the CLI and the Rust crate
+[`browser-web3-signer-btc`](crates/browser-web3-signer-btc): connect, send, sign-PSBT,
+sign-message. The TypeScript and Go bindings and other Bitcoin wallets (Xverse) are
+next; see [ADR 0001](docs/adr/0001-bitcoin-support.md). `just e2e-leather` runs the CLI against
+the real Leather extension on a throwaway regtest chain.
 
 Deferred: a full multi-client daemon (discovery file, auth, request queue, SSE), warranted only if
 several independent processes must share one connected tab. See

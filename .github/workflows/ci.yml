@@ -70,7 +70,7 @@ jobs:
           restore-keys: ${{ runner.os }}-e2e-
 
       - name: Build e2e harnesses
-        run: cargo build --bin evm-harness --bin tron-harness --features e2e --locked
+        run: cargo build --bin evm-harness --bin tron-harness --bin btc-harness --features e2e --locked
 
       - name: Install Node deps + Chromium
         working-directory: tests/e2e-browser
@@ -85,6 +85,68 @@ jobs:
       - name: Run Playwright e2e
         working-directory: tests/e2e-browser
         run: npm test
+
+  e2e-leather:
+    name: e2e-leather (CLI → real Leather extension → regtest)
+    runs-on: ubuntu-latest
+    env:
+      BITCOIN_VERSION: "31.1"
+      BITCOIN_SHA256: b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            !target/leather
+          key: ${{ runner.os }}-e2e-leather-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-e2e-leather-
+
+      - name: Install Bitcoin Core (pinned, checksum-verified)
+        run: |
+          tarball="bitcoin-${BITCOIN_VERSION}-x86_64-linux-gnu.tar.gz"
+          curl -sSfLO "https://bitcoincore.org/bin/bitcoin-core-${BITCOIN_VERSION}/${tarball}"
+          echo "${BITCOIN_SHA256}  ${tarball}" | sha256sum -c -
+          tar xzf "$tarball"
+          echo "$PWD/bitcoin-${BITCOIN_VERSION}/bin" >> "$GITHUB_PATH"
+
+      # The Leather build is slow and depends only on the pinned tag in build-leather.sh.
+      - name: Cache Leather build
+        id: leather-cache
+        uses: actions/cache@v6
+        with:
+          path: target/leather/apps/extension/dist
+          key: leather-dist-${{ hashFiles('scripts/build-leather.sh') }}
+
+      - uses: actions/setup-node@v7
+        if: steps.leather-cache.outputs.cache-hit != 'true'
+        with:
+          node-version: 22
+
+      - name: Build Leather (test mode)
+        if: steps.leather-cache.outputs.cache-hit != 'true'
+        run: |
+          corepack enable
+          scripts/build-leather.sh
+
+      - name: Build the signer
+        run: cargo build --bin browser-web3-signer --locked
+
+      - name: Install Node deps + Chromium
+        working-directory: tests/e2e-browser
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Run real-wallet Bitcoin e2e
+        working-directory: tests/e2e-browser
+        env:
+          LEATHER_EXT_DIR: ${{ github.workspace }}/target/leather/apps/extension/dist
+        run: npx playwright test btc-leather
 
   ts-binding:
     name: ts-binding (${{ matrix.runner }}, node + deno)

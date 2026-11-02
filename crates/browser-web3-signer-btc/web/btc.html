@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitcoin Wallet Signer</title>
+    <link rel="stylesheet" href="/app-core.css">
+    <style>
+      :root {
+        --brand: #f7931a;
+        --brand-rgb: 247, 147, 26;
+        --brand-end: #c2410c;
+        --brand-text: #fdba74;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app" class="container">
+      <!-- === Loading === -->
+      <div id="view-loading" style="text-align: center">
+        <div class="spinner"></div>
+        <p class="loading-text">Loading request...</p>
+      </div>
+
+      <!-- === Page-level error === -->
+      <div id="view-error" class="hidden" style="text-align: center">
+        <div class="error-icon">!</div>
+        <h1>Error</h1>
+        <p id="error-msg" class="page-text"></p>
+      </div>
+
+      <!-- === Not found === -->
+      <div id="view-not-found" class="hidden" style="text-align: center">
+        <div class="error-icon">?</div>
+        <h1>Request Not Found</h1>
+        <p class="page-text">This signing request has expired or doesn't exist.</p>
+        <p class="hint">You can close this window.</p>
+      </div>
+
+      <!-- === Connect Wallet === -->
+      <div id="view-connect" class="hidden">
+        <div class="card">
+          <div class="icon icon-connect">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M21 18v1c0 1.1-.9 2-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h14c1.1 0 2 .9 2 2v1h-9a2 2 0 00-2 2v8a2 2 0 002 2h9zm-9-2h10V8H12v8zm4-2.5a1.5 1.5 0 10-3 0 1.5 1.5 0 003 0z"
+              />
+            </svg>
+          </div>
+          <h1>Connect Bitcoin Wallet</h1>
+          <p class="description">An application is requesting to connect to your Bitcoin wallet.</p>
+
+          <div id="connect-chain" class="chain-badge hidden"></div>
+          <div id="connect-required" class="required-address hidden">
+            Required: <span id="connect-required-text" class="address"></span>
+          </div>
+
+          <div id="connect-no-wallet" class="error-box hidden">
+            <p>No Bitcoin wallet detected</p>
+            <p class="small">
+              Install <a href="https://unisat.io" style="color: #fdba74">Unisat</a> or <a href="https://leather.io" style="color: #fdba74">Leather</a> and unlock it, then refresh this
+              page.
+            </p>
+          </div>
+
+          <div id="connect-success" class="success-box hidden">
+            <p>Connected!</p>
+            <p id="connect-success-addr" class="address"></p>
+            <p class="small">This window will close automatically...</p>
+          </div>
+
+          <div id="connect-wrong" class="hidden">
+            <div class="error-box">
+              <p>Wrong Address</p>
+              <p class="small">Expected: <span id="connect-wrong-expected" class="address"></span></p>
+              <p class="small">Connected: <span id="connect-wrong-got" class="address"></span></p>
+              <p class="small">Switch to the correct account in your wallet, or click Try Again.</p>
+            </div>
+            <div class="buttons">
+              <button class="btn-secondary" onclick="app.cancelConnect()">Cancel</button>
+              <button class="btn-primary" onclick="app.handleConnect()">Try Again</button>
+            </div>
+          </div>
+
+          <div id="connect-err" class="hidden">
+            <div class="error-box">
+              <p>Connection Failed</p>
+              <p id="connect-err-msg" class="small"></p>
+            </div>
+            <div class="buttons">
+              <button class="btn-secondary" onclick="app.cancelConnect()">Cancel</button>
+              <button class="btn-primary" onclick="app.handleConnect()">Try Again</button>
+            </div>
+          </div>
+
+          <div id="connect-idle" class="hidden">
+            <div class="wallet-info">
+              <span id="connect-wname" class="wallet-name">Bitcoin wallet</span> detected
+            </div>
+            <div class="buttons">
+              <button class="btn-secondary" onclick="app.cancelConnect()">Cancel</button>
+              <button id="connect-btn" class="btn-primary" onclick="app.handleConnect()">Connect</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- === Send Transaction === -->
+      <div id="view-tx" class="hidden">
+        <div class="card">
+          <div class="icon icon-transaction">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"
+              />
+            </svg>
+          </div>
+          <h1 id="tx-heading">Send Transaction</h1>
+
+          <div id="tx-required" class="required-address hidden">
+            Required: <span id="tx-required-text" class="address"></span>
+          </div>
+
+          <div id="tx-success" class="success-box hidden">
+            <p id="tx-success-title">Transaction Sent!</p>
+            <p id="tx-hash" class="hash"></p>
+            <p class="small">This window will close automatically...</p>
+          </div>
+
+          <div id="tx-wrong" class="hidden">
+            <div class="error-box">
+              <p>Wrong Address</p>
+              <p class="small">Expected: <span id="tx-wrong-expected" class="address"></span></p>
+              <p class="small">Connected: <span id="tx-wrong-got" class="address"></span></p>
+              <p class="small">Switch to the correct account in your wallet to continue.</p>
+            </div>
+            <div class="buttons">
+              <button class="btn-secondary" onclick="app.rejectTx()">Reject</button>
+            </div>
+          </div>
+
+          <div id="tx-err" class="error-box hidden">
+            <p>Transaction Failed</p>
+            <p id="tx-err-msg" class="small"></p>
+          </div>
+
+          <div id="tx-details" class="tx-details hidden">
+            <div id="tx-to-row" class="detail-row">
+              <span class="label">To</span>
+              <span id="tx-to" class="value value-address"></span>
+            </div>
+            <div id="tx-value-row" class="detail-row">
+              <span class="label">Amount</span>
+              <span id="tx-value" class="value"></span>
+            </div>
+            <div id="tx-fee-row" class="detail-row hidden">
+              <span class="label">Fee rate</span>
+              <span id="tx-fee" class="value"></span>
+            </div>
+            <div id="tx-psbt-row" class="detail-row hidden">
+              <span class="label">PSBT</span>
+              <span id="tx-psbt" class="value value-mono"></span>
+            </div>
+            <div id="tx-inputs-row" class="detail-row hidden">
+              <span class="label">Sign inputs</span>
+              <span id="tx-inputs" class="value"></span>
+            </div>
+            <div id="tx-broadcast-row" class="detail-row hidden">
+              <span class="label">After signing</span>
+              <span id="tx-broadcast" class="value"></span>
+            </div>
+            <div id="tx-network-row" class="detail-row hidden">
+              <span class="label">Network</span>
+              <span id="tx-network" class="value"></span>
+            </div>
+          </div>
+
+          <div id="tx-no-wallet" class="error-box hidden">
+            <p>No Bitcoin wallet detected</p>
+            <p class="small">Install Unisat or Leather and unlock it to continue.</p>
+          </div>
+
+          <div id="tx-footer" class="hidden">
+            <div id="tx-connected" class="connected-badge hidden"></div>
+            <div class="buttons">
+              <button class="btn-secondary" onclick="app.rejectTx()">Reject</button>
+              <button id="tx-btn" class="btn-primary btn-primary-amber" onclick="app.handleSignTx()">Sign &amp; Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- === Sign Message / Typed Data === -->
+      <div id="view-msg" class="hidden">
+        <div class="card" style="max-width: 500px">
+          <div class="icon icon-sign">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+              />
+            </svg>
+          </div>
+          <h1 id="msg-heading">Sign Message</h1>
+
+          <div id="msg-required" class="required-address hidden">
+            Required: <span id="msg-required-text" class="address"></span>
+          </div>
+
+          <div id="msg-success" class="success-box hidden">
+            <p>Signed Successfully!</p>
+            <p id="msg-sig" class="signature"></p>
+            <p class="small">This window will close automatically...</p>
+          </div>
+
+          <div id="msg-wrong" class="hidden">
+            <div class="error-box">
+              <p>Wrong Address</p>
+              <p class="small">Expected: <span id="msg-wrong-expected" class="address"></span></p>
+              <p class="small">Connected: <span id="msg-wrong-got" class="address"></span></p>
+              <p class="small">Switch to the correct account in your wallet to continue.</p>
+            </div>
+            <div class="buttons">
+              <button class="btn-secondary" onclick="app.rejectSign()">Reject</button>
+            </div>
+          </div>
+
+          <div id="msg-err" class="error-box hidden">
+            <p>Signing Failed</p>
+            <p id="msg-err-msg" class="small"></p>
+          </div>
+
+          <div id="msg-content" class="message-box hidden">
+            <div id="msg-plain" class="hidden">
+              <div id="msg-label" class="message-label">Message</div>
+              <div id="msg-text" class="message-content"></div>
+            </div>
+            <div id="msg-typed" class="hidden">
+              <div class="message-label">Typed Data</div>
+              <pre id="msg-typed-data" class="typed-data"></pre>
+            </div>
+          </div>
+
+          <div id="msg-chain" class="chain-badge chain-badge-purple hidden"></div>
+
+          <div id="msg-no-wallet" class="error-box hidden">
+            <p>No Bitcoin wallet detected</p>
+            <p class="small">Install Unisat or Leather and unlock it to continue.</p>
+          </div>
+
+          <div id="msg-footer" class="hidden">
+            <div id="msg-connected" class="connected-badge hidden"></div>
+            <div class="buttons">
+              <button class="btn-secondary" onclick="app.rejectSign()">Reject</button>
+              <button id="msg-btn" class="btn-primary btn-primary-purple" onclick="app.handleSignMsg()">Sign</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="version" class="version"></div>
+
+    <script src="/app-core.js"></script>
+    <script>
+      (function () {
+        "use strict";
+
+        var C = window.WalletSignerCore;
+        var $ = C.$, show = C.show, hide = C.hide;
+
+        var NETWORK_LABELS = {
+          mainnet: "Bitcoin Mainnet",
+          testnet: "Bitcoin Testnet3",
+          testnet4: "Bitcoin Testnet4",
+          signet: "Bitcoin Signet",
+          regtest: "Bitcoin Regtest",
+        };
+
+        // The request, captured once the core has fetched it (onChainReady), so wallet calls can
+        // target the request's network and pick the requested address.
+        var pending = null;
+
+        // The address the request names (sender for transactions, signer for messages, the
+        // required one for connect), if any.
+        function requestedAddress() {
+          return pending ? pending.from || pending.address || "" : "";
+        }
+
+        // --- Unisat (window.unisat) ---
+        // One address per account; the network is global wallet state, switched with switchChain.
+        // Switching changes the account's address (bc1… vs tb1…), so the switch must precede
+        // reading it.
+        var UNISAT_CHAINS = {
+          mainnet: "BITCOIN_MAINNET",
+          testnet: "BITCOIN_TESTNET",
+          testnet4: "BITCOIN_TESTNET4",
+          signet: "BITCOIN_SIGNET",
+        };
+
+        var unisatDriver = {
+          name: "Unisat",
+          present: function () {
+            return !!window.unisat;
+          },
+          wantedChain: function () {
+            if (!pending) return null;
+            var chain = UNISAT_CHAINS[pending.network];
+            if (!chain) throw new Error("Unisat does not support " + (NETWORK_LABELS[pending.network] || pending.network));
+            return chain;
+          },
+          onWantedChain: async function () {
+            var want = this.wantedChain();
+            if (!want) return true;
+            var chain = await window.unisat.getChain();
+            return !!chain && chain.enum === want;
+          },
+          // switchChain shows Unisat's approval prompt (skipped when already there), so only
+          // user-initiated actions call this.
+          ensureChain: async function () {
+            if (!(await this.onWantedChain())) await window.unisat.switchChain(this.wantedChain());
+          },
+          // "" while the wallet is on another chain, so the core falls through to requestAccounts,
+          // which switches first: an address read on the wrong chain is the wrong address.
+          currentAddress: async function () {
+            if (!(await this.onWantedChain())) return "";
+            var accounts = await window.unisat.getAccounts();
+            return (accounts && accounts[0]) || "";
+          },
+          requestAccounts: async function () {
+            await this.ensureChain();
+            var accounts = await window.unisat.requestAccounts();
+            if (!accounts || !accounts[0]) throw new Error("No account returned from Unisat");
+            return accounts[0];
+          },
+          onAccountsChanged: function (cb) {
+            if (typeof window.unisat.on !== "function") return function () {};
+            var handler = function (accounts) {
+              cb((accounts && accounts[0]) || "");
+            };
+            window.unisat.on("accountsChanged", handler);
+            return function () {
+              window.unisat.removeListener("accountsChanged", handler);
+            };
+          },
+          onNetworkChanged: function (cb) {
+            var self = this;
+            if (typeof window.unisat.on !== "function") return;
+            window.unisat.on("networkChanged", function () {
+              self.onWantedChain().then(function (ready) {
+                if (ready) cb();
+              });
+            });
+          },
+          sendTransfer: async function (request) {
+            await this.ensureChain();
+            var options = request.feeRate ? { feeRate: Number(request.feeRate) } : undefined;
+            // Sats stay below 2^53 (21e14 total supply), so Number is exact.
+            return window.unisat.sendBitcoin(request.to, Number(request.amount), options);
+          },
+          signPsbt: async function (request, from) {
+            await this.ensureChain();
+            var options = { autoFinalized: request.finalize };
+            if (request.signInputs) {
+              options.toSignInputs = request.signInputs.map(function (index) {
+                return { index: index, address: from };
+              });
+            }
+            var signed = await window.unisat.signPsbt(request.psbt, options);
+            // Unisat only finalizes when it signed every input, and pushPsbt needs a finalized
+            // PSBT; a partial one fails here with the wallet's error, shown in-page.
+            var txid = request.broadcast ? await window.unisat.pushPsbt(signed) : null;
+            return { psbt: signed, txid: txid };
+          },
+          signMessage: async function (request) {
+            await this.ensureChain();
+            return window.unisat.signMessage(request.message, request.protocol === "ecdsa" ? "ecdsa" : "bip322-simple");
+          },
+        };
+
+        // --- Leather (window.LeatherProvider) ---
+        // JSON-RPC `request(method, params)`: resolves to `{result}`, rejects with `{error}`.
+        // Every call names the network (Leather's network ids match ours; an unknown id falls
+        // back to the wallet's active network). An account has a native-segwit (payment) and a
+        // Taproot address; there is no silent account read and no change events.
+        var leatherAddresses = [];
+
+        async function leatherRequest(method, params) {
+          try {
+            return (await window.LeatherProvider.request(method, params)).result;
+          } catch (e) {
+            var body = (e && e.error) || {};
+            var err = new Error(body.message || (e && e.message) || "Leather request failed");
+            err.code = body.code;
+            throw err;
+          }
+        }
+
+        // The requested address if the account has it, else the payment (native segwit) one.
+        function leatherPick() {
+          var wanted = requestedAddress();
+          var match = leatherAddresses.filter(function (a) {
+            return wanted && a.address.toLowerCase() === wanted.toLowerCase();
+          })[0];
+          var payment = leatherAddresses.filter(function (a) {
+            return a.type === "p2wpkh";
+          })[0];
+          return (match || payment || leatherAddresses[0] || { address: "" }).address;
+        }
+
+        var leatherDriver = {
+          name: "Leather",
+          present: function () {
+            return !!window.LeatherProvider;
+          },
+          currentAddress: async function () {
+            return leatherAddresses.length ? leatherPick() : "";
+          },
+          requestAccounts: async function () {
+            var result = await leatherRequest("getAddresses", { network: pending && pending.network });
+            leatherAddresses = (result.addresses || []).filter(function (a) {
+              return a.symbol === "BTC" && (a.type === "p2wpkh" || a.type === "p2tr");
+            });
+            var address = leatherPick();
+            if (!address) throw new Error("No Bitcoin address returned from Leather");
+            return address;
+          },
+          onAccountsChanged: function () {
+            return function () {};
+          },
+          onNetworkChanged: function () {},
+          sendTransfer: async function (request) {
+            // Leather picks the fee itself; the feeRate hint has no place in sendTransfer.
+            var result = await leatherRequest("sendTransfer", {
+              recipients: [{ address: request.to, amount: request.amount }],
+              network: request.network,
+            });
+            if (!result.txid) throw new Error("Leather returned no txid");
+            return result.txid;
+          },
+          signPsbt: async function (request) {
+            // Leather finalizes only when it broadcasts; otherwise it returns the PSBT signed but
+            // unfinalized.
+            if (request.finalize && !request.broadcast) {
+              throw new Error("Leather can't finalize a PSBT without broadcasting it; sign without --finalize and finalize it yourself");
+            }
+            var params = { hex: request.psbt, broadcast: request.broadcast, network: request.network };
+            if (request.signInputs) params.signAtIndex = request.signInputs;
+            var result = await leatherRequest("signPsbt", params);
+            return { psbt: result.hex, txid: result.txid || null };
+          },
+          signMessage: async function (request, address) {
+            var account = leatherAddresses.filter(function (a) {
+              return a.address === address;
+            })[0];
+            var result = await leatherRequest("signMessage", {
+              message: request.message,
+              paymentType: account && account.type === "p2tr" ? "p2tr" : "p2wpkh",
+              type: request.protocol === "ecdsa" ? "legacy" : "bip322",
+              network: request.network,
+            });
+            return result.signature;
+          },
+        };
+
+        // ponytail: first installed wallet wins (Unisat, then Leather); a picker when someone
+        // runs both and wants the second.
+        var DRIVERS = [unisatDriver, leatherDriver];
+        var driver = null;
+
+        // Wallets inject at document_start, but give them a moment anyway.
+        function waitForWallet(timeoutMs) {
+          var deadline = Date.now() + timeoutMs;
+          return new Promise(function (resolve) {
+            (function tick() {
+              var found = DRIVERS.filter(function (d) {
+                return d.present();
+              })[0];
+              if (found || Date.now() >= deadline) {
+                resolve(found || null);
+                return;
+              }
+              setTimeout(tick, 100);
+            })();
+          });
+        }
+
+        function formatSats(satStr) {
+          var s = BigInt(satStr || "0").toString().padStart(9, "0");
+          var whole = s.slice(0, s.length - 8);
+          var frac = s.slice(s.length - 8).replace(/0+$/, "");
+          return (frac ? whole + "." + frac : whole) + " BTC";
+        }
+
+        function short(s) {
+          s = String(s || "");
+          return s.length > 48 ? s.slice(0, 24) + "…" + s.slice(-16) : s;
+        }
+
+        // --- Chain adapter ---
+        C.init({
+          logTag: "browser-btc-signer",
+
+          setup: async function () {
+            driver = await waitForWallet(1500);
+          },
+          hasWallet: function () {
+            return !!driver;
+          },
+          walletName: function () {
+            return driver ? driver.name : "Bitcoin wallet";
+          },
+          walletIcon: function () {
+            return null;
+          },
+          // Bech32 (bc1…/tb1…/bcrt1…) is case-insensitive; Base58 (1…, 3…, m…, n…, 2…) is not.
+          addressMatch: function (a, b) {
+            a = String(a);
+            b = String(b);
+            var bech32 = /^(bc|tb|bcrt)1/i;
+            return bech32.test(a) && bech32.test(b) ? a.toLowerCase() === b.toLowerCase() : a === b;
+          },
+          currentAddress: async function () {
+            return driver ? driver.currentAddress() : "";
+          },
+          requestAccounts: async function () {
+            return driver.requestAccounts();
+          },
+          onAccountsChanged: function (cb) {
+            return driver ? driver.onAccountsChanged(cb) : function () {};
+          },
+          onChainReady: function (request, cb) {
+            pending = request;
+            if (driver) driver.onNetworkChanged(cb);
+          },
+
+          badgeText: function (request) {
+            return NETWORK_LABELS[request.network] || null;
+          },
+          get confirmLabel() {
+            return "Confirm in " + (driver ? driver.name : "your wallet") + "...";
+          },
+          txHeading: function (request) {
+            return request.type === "sign_psbt" ? "Sign PSBT" : "Send Bitcoin";
+          },
+          txButtonLabel: function (request) {
+            if (request.type !== "sign_psbt") return "Sign & Send";
+            return request.broadcast ? "Sign & Broadcast" : "Sign";
+          },
+          renderTxDetails: function (request) {
+            var isPsbt = request.type === "sign_psbt";
+            if (isPsbt) {
+              hide($("tx-to-row"));
+              hide($("tx-value-row"));
+              hide($("tx-fee-row"));
+              $("tx-psbt").textContent = short(request.psbt) + " (" + request.psbt.length / 2 + " bytes)";
+              show($("tx-psbt-row"));
+              $("tx-inputs").textContent = request.signInputs ? request.signInputs.join(", ") : "all of this account's";
+              show($("tx-inputs-row"));
+              $("tx-broadcast").textContent = request.broadcast
+                ? "finalize and broadcast"
+                : request.finalize ? "finalize, don't broadcast" : "return unfinalized";
+              show($("tx-broadcast-row"));
+            } else {
+              $("tx-to").textContent = request.to;
+              show($("tx-to-row"));
+              $("tx-value").textContent = formatSats(request.amount);
+              show($("tx-value-row"));
+              if (request.feeRate) {
+                $("tx-fee").textContent = request.feeRate + " sat/vB";
+                show($("tx-fee-row"));
+              } else hide($("tx-fee-row"));
+              hide($("tx-psbt-row"));
+              hide($("tx-inputs-row"));
+              hide($("tx-broadcast-row"));
+            }
+            $("tx-network").textContent = NETWORK_LABELS[request.network] || request.network;
+            show($("tx-network-row"));
+          },
+          // A PSBT signed without broadcasting has no txid to show.
+          renderTxSuccessExtra: function (request, ctx) {
+            if (request.type === "sign_psbt" && !ctx.txHash) {
+              $("tx-success-title").textContent = "PSBT Signed!";
+              $("tx-hash").textContent = "Returned to the caller (not broadcast).";
+            }
+          },
+
+          sendTx: async function (request, from) {
+            if (request.type === "send_transfer") {
+              var txid = await driver.sendTransfer(request, from);
+              return { settled: txid, txHash: txid };
+            }
+            var out = await driver.signPsbt(request, from);
+            var result = { psbt: out.psbt };
+            if (out.txid) result.txid = out.txid;
+            return { settled: JSON.stringify(result), txHash: out.txid };
+          },
+          signMessage: async function (request, address) {
+            return driver.signMessage(request, address);
+          },
+          signTypedData: async function () {
+            throw new Error("Bitcoin has no typed-data signing");
+          },
+        });
+      })();
+    </script>
+  </body>
+</html>

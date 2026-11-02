@@ -4,6 +4,7 @@ members = [
   "crates/browser-web3-signer-core",
   "crates/browser-web3-signer-evm",
   "crates/browser-web3-signer-tron",
+  "crates/browser-web3-signer-btc",
   "crates/browser-web3-signer",
 ]
 
@@ -13,7 +14,7 @@ edition = "2024"
 license = "MIT"
 rust-version = "1.95"
 repository = "https://github.com/nikicat/browser-web3-signer"
-keywords = ["web3", "wallet", "signer", "ethereum", "tron"]
+keywords = ["web3", "wallet", "signer", "ethereum", "bitcoin"]
 categories = ["cryptography::cryptocurrencies"]
 
 [workspace.dependencies]
@@ -22,6 +23,7 @@ categories = ["cryptography::cryptocurrencies"]
 browser-web3-signer-core = { path = "crates/browser-web3-signer-core", version = "0.6.1" }
 browser-web3-signer-evm = { path = "crates/browser-web3-signer-evm", version = "0.6.1" }
 browser-web3-signer-tron = { path = "crates/browser-web3-signer-tron", version = "0.6.1" }
+browser-web3-signer-btc = { path = "crates/browser-web3-signer-btc", version = "0.6.1" }
 
 tokio = { version = "1", features = [
   "rt-multi-thread",

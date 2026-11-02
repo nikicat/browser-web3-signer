@@ -5,6 +5,7 @@
 //! string — there is one source of truth for the discriminator.
 
 use alloy::primitives::Bytes;
+use browser_web3_signer_core::parse::{opt_parsed, req_parsed, str_field};
 use browser_web3_signer_core::{Request, RequestMeta, Url, UrlKind};
 use serde::Serialize;
 use uuid::Uuid;
@@ -330,13 +331,6 @@ impl EvmRequest {
     }
 }
 
-/// Read a required string field, or a "missing/!string" reason.
-fn str_field<'a>(body: &'a serde_json::Value, key: &str) -> Result<&'a str, String> {
-    body.get(key)
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| format!("missing or non-string field '{key}'"))
-}
-
 /// Read an open-ended JSON sub-object, defaulting to `{}` when absent (for EIP-712 parts).
 fn json_field(body: &serde_json::Value, key: &str) -> serde_json::Value {
     body.get(key)
@@ -349,30 +343,6 @@ fn str_opt(body: &serde_json::Value, key: &str) -> Option<String> {
     body.get(key)
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned)
-}
-
-/// Parse a required string field into a domain type `T`, mapping failures to a reason.
-fn req_parsed<T>(body: &serde_json::Value, key: &str) -> Result<T, String>
-where
-    T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
-{
-    str_field(body, key)?
-        .parse::<T>()
-        .map_err(|e| format!("invalid '{key}': {e}"))
-}
-
-/// Parse an optional string field into a domain type `T`; `None` if absent, error if present but
-/// unparseable.
-fn opt_parsed<T>(body: &serde_json::Value, key: &str) -> Result<Option<T>, String>
-where
-    T: std::str::FromStr,
-    <T as std::str::FromStr>::Err: std::fmt::Display,
-{
-    body.get(key)
-        .and_then(serde_json::Value::as_str)
-        .map(|s| s.parse::<T>().map_err(|e| format!("invalid '{key}': {e}")))
-        .transpose()
 }
 
 #[cfg(test)]

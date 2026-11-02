@@ -1,0 +1,24 @@
+[package]
+name = "browser-web3-signer-btc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+description = "Bitcoin browser wallet signer: connect / send / sign-PSBT / sign-message via Unisat."
+
+[dependencies]
+browser-web3-signer-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+bitcoin = { version = "0.32", default-features = false, features = [
+  "std",
+  "base64",
+] }
+
+[lints]
+workspace = true

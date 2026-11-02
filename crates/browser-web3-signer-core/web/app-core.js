@@ -426,7 +426,8 @@
 
   // --- Request-type predicates ---
   function isTxType(type) {
-    return type === "send_transaction" || type === "trigger_contract" || type === "deploy_contract";
+    return type === "send_transaction" || type === "trigger_contract" || type === "deploy_contract" ||
+      type === "send_transfer" || type === "sign_psbt";
   }
   function isMsgType(type) {
     return type === "sign_message" || type === "sign_typed_data";

@@ -260,31 +260,7 @@ impl fmt::Display for TokenAmount {
     }
 }
 
-/// Error parsing a string into a domain type.
-#[derive(Debug)]
-pub struct DomainParseError {
-    kind: &'static str,
-    input: String,
-    source: String,
-}
-
-impl DomainParseError {
-    fn new(kind: &'static str, input: &str, source: impl fmt::Display) -> Self {
-        Self {
-            kind,
-            input: input.to_owned(),
-            source: source.to_string(),
-        }
-    }
-}
-
-impl fmt::Display for DomainParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid {} '{}': {}", self.kind, self.input, self.source)
-    }
-}
-
-impl std::error::Error for DomainParseError {}
+pub use browser_web3_signer_core::DomainParseError;
 
 #[cfg(test)]
 mod tests {
