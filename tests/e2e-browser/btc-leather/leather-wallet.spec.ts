@@ -46,6 +46,7 @@ let chain: Regtest;
 let leather: Leather;
 let page: Page;
 let address = ""; // the wallet's payment address, from connect
+let publicKey = ""; // its public key, from connect
 
 test.beforeAll(async () => {
   chain = await startRegtest();
@@ -119,10 +120,13 @@ async function buildPsbt(): Promise<string> {
 let psbtHex = "";
 let psbtTxid = "";
 
-test("connect returns the wallet's regtest address", async () => {
+test("connect returns the wallet's regtest address and its key", async () => {
   const out = await run(["connect"], "Connect", approveAccounts);
   address = out.address;
+  publicKey = out.publicKey;
   expect(address).toMatch(/^bcrt1q/);
+  const pubkey = Buffer.from(publicKey, "hex");
+  expect(bitcoin.payments.p2wpkh({ pubkey, network: REGTEST }).address).toBe(address);
   await chain.fund(address, 1_000_000);
 });
 
@@ -157,6 +161,36 @@ test("sign-psbt --broadcast puts the same transaction in the mempool", async () 
   expect(out.txid).toBe(psbtTxid);
   expect(await chain.rpc("getmempoolentry", psbtTxid)).toBeTruthy();
   await chain.mine(1);
+});
+
+test("sign-psbt signs a script-path input through a leaf naming the wallet's key", async () => {
+  // A coin locked under the BIP-341 NUMS internal key, so it can only be spent through the leaf
+  // `<the wallet's x-only key> OP_CHECKSIG`.
+  const nums = Buffer.from("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0", "hex");
+  const leaf = bitcoin.script.compile([Buffer.from(publicKey, "hex").subarray(1), bitcoin.opcodes.OP_CHECKSIG]);
+  const redeem = { output: leaf, redeemVersion: 0xc0 };
+  const locked = bitcoin.payments.p2tr({ internalPubkey: nums, scriptTree: { output: leaf }, redeem, network: REGTEST });
+  const fundTxid = await chain.fund(locked.address!, 100_000);
+  const fundTx = await chain.rpc("getrawtransaction", fundTxid, 1);
+  const vout = fundTx.vout.findIndex((o: any) => o.scriptPubKey.address === locked.address);
+
+  const psbt = new bitcoin.Psbt({ network: REGTEST });
+  psbt.addInput({
+    hash: fundTxid,
+    index: vout,
+    witnessUtxo: { script: locked.output!, value: 100_000n },
+    tapInternalKey: nums,
+    tapLeafScript: [{ leafVersion: 0xc0, script: leaf, controlBlock: locked.witness![locked.witness!.length - 1] }],
+  });
+  psbt.addOutput({ script: bitcoin.address.toOutputScript(address, REGTEST), value: 99_500n });
+
+  const out = await run(["sign-psbt", "--psbt", psbt.toHex(), "--sign-input", "0"], "Sign", approvePsbt);
+  const signed = bitcoin.Psbt.fromHex(out.psbt, { network: REGTEST });
+  expect(signed.data.inputs[0].tapScriptSig).toHaveLength(1);
+  signed.finalizeAllInputs();
+  const tx = signed.extractTransaction();
+  const [accept] = await chain.rpc("testmempoolaccept", [tx.toHex()]);
+  expect(accept).toMatchObject({ txid: tx.getId(), allowed: true });
 });
 
 test("a rejection in Leather stays in-page; Reject reaches the CLI", async () => {

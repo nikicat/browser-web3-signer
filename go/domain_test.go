@@ -1,6 +1,7 @@
 package signer
 
 import (
+	"encoding/hex"
 	"strings"
 	"testing"
 
@@ -109,6 +110,19 @@ func TestParseBtcTxid(t *testing.T) {
 	for _, bad := range []string{"", "0x" + s, s[:62], s + "00", strings.Repeat("zz", 32)} {
 		_, err := ParseBtcTxid(bad)
 		assert.Error(t, err, "input %q", bad)
+	}
+}
+
+func TestParseBtcAccount(t *testing.T) {
+	const key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+	a, err := parseBtcAccount(`{"address":"bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080","publicKey":"` + key + `"}`)
+	require.NoError(t, err)
+	assert.Equal(t, "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080", a.Address)
+	assert.Equal(t, key, hex.EncodeToString(a.PublicKey))
+
+	for _, bad := range []string{"bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080", `{"address":"x"}`, `{"address":"x","publicKey":"` + key[2:] + `"}`} {
+		_, err := parseBtcAccount(bad)
+		assert.Error(t, err, bad)
 	}
 }
 

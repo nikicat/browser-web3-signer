@@ -150,8 +150,11 @@ describe("BtcSignerClient", () => {
     await client.shutdown();
   });
 
-  test("connectWallet returns the wallet's address", async () => {
-    assert.equal(await client.connectWallet(), ADDRESS);
+  test("connectWallet returns the wallet's address and public key", async () => {
+    assert.deepEqual(await client.connectWallet(), {
+      address: ADDRESS,
+      publicKey: "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", // the fake wallet's
+    });
   });
 
   test("sendTransfer returns the txid", async () => {

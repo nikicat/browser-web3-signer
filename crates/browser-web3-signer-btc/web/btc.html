@@ -331,6 +331,10 @@
             if (!accounts || !accounts[0]) throw new Error("No account returned from Unisat");
             return accounts[0];
           },
+          // The current account's key, which is the connected address's.
+          publicKey: async function () {
+            return window.unisat.getPublicKey();
+          },
           onAccountsChanged: function (cb) {
             if (typeof window.unisat.on !== "function") return function () {};
             var handler = function (accounts) {
@@ -360,8 +364,13 @@
             await this.ensureChain();
             var options = { autoFinalized: request.finalize };
             if (request.signInputs) {
+              var scriptPath = request.scriptPathInputs || [];
+              // Unisat signs a Taproot input with its tweaked (key-path) key unless told not to;
+              // a script leaf names the untweaked one.
               options.toSignInputs = request.signInputs.map(function (index) {
-                return { index: index, address: from };
+                var input = { index: index, address: from };
+                if (scriptPath.indexOf(index) >= 0) input.disableTweakSigner = true;
+                return input;
               });
             }
             var signed = await window.unisat.signPsbt(request.psbt, options);
@@ -422,6 +431,13 @@
             var address = leatherPick();
             if (!address) throw new Error("No Bitcoin address returned from Leather");
             return address;
+          },
+          publicKey: async function (address) {
+            var account = leatherAddresses.filter(function (a) {
+              return a.address === address;
+            })[0];
+            if (!account || !account.publicKey) throw new Error("Leather returned no public key for " + address);
+            return account.publicKey;
           },
           onAccountsChanged: function () {
             return function () {};
@@ -527,6 +543,10 @@
           onAccountsChanged: function (cb) {
             return driver ? driver.onAccountsChanged(cb) : function () {};
           },
+          // A Bitcoin caller needs the account's key as well, to name it in a Taproot script leaf.
+          connectResult: async function (address) {
+            return JSON.stringify({ address: address, publicKey: await driver.publicKey(address) });
+          },
           onChainReady: function (request, cb) {
             pending = request;
             if (driver) driver.onNetworkChanged(cb);
@@ -553,7 +573,14 @@
               hide($("tx-fee-row"));
               $("tx-psbt").textContent = short(request.psbt) + " (" + request.psbt.length / 2 + " bytes)";
               show($("tx-psbt-row"));
-              $("tx-inputs").textContent = request.signInputs ? request.signInputs.join(", ") : "all of this account's";
+              var scriptPath = request.scriptPathInputs || [];
+              $("tx-inputs").textContent = request.signInputs
+                ? request.signInputs
+                    .map(function (index) {
+                      return scriptPath.indexOf(index) >= 0 ? index + " (script path)" : String(index);
+                    })
+                    .join(", ")
+                : "all of this account's";
               show($("tx-inputs-row"));
               $("tx-broadcast").textContent = request.broadcast
                 ? "finalize and broadcast"

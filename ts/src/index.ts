@@ -20,6 +20,7 @@ export {
   type SignMessageParams,
   type SignTypedDataParams,
   BtcSignerClient,
+  type BtcAccount,
   type BtcNetwork,
   type BtcSignerClientOptions,
   type BtcSendTransferParams,

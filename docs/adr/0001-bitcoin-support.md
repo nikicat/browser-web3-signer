@@ -38,13 +38,15 @@ Read from [`unisat-wallet/wallet`](https://github.com/unisat-wallet/wallet) at `
 | `getPublicKey()` | — | hex public key |
 | `getChain()` / `switchChain(enum)` | `enum` ∈ `BITCOIN_MAINNET`, `BITCOIN_TESTNET`, `BITCOIN_TESTNET4`, `BITCOIN_SIGNET` (+ two Fractal chains) | `{ enum, name, network }` |
 | `sendBitcoin(to, satoshis, { feeRate?, memo? })` | **one** recipient | txid (the wallet builds, signs and broadcasts) |
-| `signPsbt(psbtHex, { autoFinalized?, toSignInputs? })` | `toSignInputs: [{ index, address \| publicKey, sighashTypes? }]`; omitted ⇒ sign every input the account owns | signed PSBT hex |
+| `signPsbt(psbtHex, { autoFinalized?, toSignInputs? })` | `toSignInputs: [{ index, address \| publicKey, sighashTypes?, disableTweakSigner? }]`; omitted ⇒ sign every input the account owns | signed PSBT hex |
 | `pushPsbt(psbtHex)` | finalized PSBT | txid |
 | `signMessage(text, type)` | `type` ∈ `"ecdsa"`, `"bip322-simple"` | base64 signature |
 | events | `accountsChanged(string[])` (`[]` on disconnect), `networkChanged(network)` | — |
 
 `autoFinalized` defaults to true, but the wallet only finalizes when it signs *every* input
-(`wallet.ts` `formatPsbt`). **Unisat has no regtest**, and its per-chain API endpoints are
+(`wallet.ts` `formatPsbt`). A Taproot input is signed with the account's tweaked (key-path) key
+unless its `toSignInputs` entry sets `disableTweakSigner`; with it, bitcoinjs-lib signs every
+leaf that names the untweaked key (`keyring-service` `simple-keyring.ts` `signTransaction`). **Unisat has no regtest**, and its per-chain API endpoints are
 hard-coded (`packages/wallet-shared/src/constants/common.ts`), so it can't be pointed at a local
 node.
 
@@ -64,7 +66,7 @@ Read from [`leather-io/mono`](https://github.com/leather-io/mono) at
 |---|---|---|
 | `getAddresses` | `network?` | `{ addresses }`: per account a `p2wpkh` and a `p2tr` address (each with `publicKey`), plus Stacks |
 | `sendTransfer` | `recipients: [{ address, amount }]` (sats), `network` | `{ txid }`. No fee-rate parameter |
-| `signPsbt` | `hex`, `signAtIndex?`, `broadcast?`, `network?` | `{ hex, txid? }`. Finalizes **only** when broadcasting |
+| `signPsbt` | `hex`, `signAtIndex?`, `broadcast?`, `network?` | `{ hex, txid? }`. Finalizes **only** when broadcasting. Signs each index with the native-segwit key, else the Taproot one, through `@scure/btc-signer`'s `signIdx`, which also signs any leaf that names the key |
 | `signMessage` | `message`, `paymentType: p2wpkh \| p2tr`, `type?: bip322 \| legacy`, `network?` | `{ signature, address }` |
 
 `network` is a Leather network-configuration id. The built-in ids (`mainnet`, `testnet`,
@@ -89,7 +91,7 @@ with `cc`. That costs nothing new: the release workflow already installs `musl-g
 
 | `type` | Fields | Result |
 |---|---|---|
-| `connect` | `network?`, `address?` | the wallet's address |
+| `connect` | `network?`, `address?` | `{ address, publicKey }` |
 | `send_transfer` | `to`, `amount` (sats), `from?`, `feeRate?` (sat/vB), `network?` | `txid` |
 | `sign_psbt` | `psbt` (hex), `from?`, `signInputs?: [index]`, `finalize?`, `broadcast?`, `network?` | `{ psbt, txid? }` |
 | `sign_message` | `message`, `address?`, `protocol?: "bip322" \| "ecdsa"` (default `bip322`), `network?` | base64 signature |
@@ -109,9 +111,17 @@ with `cc`. That costs nothing new: the release workflow already installs `musl-g
 - **Finalize without broadcast** works on Unisat, not on Leather: Leather returns the PSBT
   signed but unfinalized. The page refuses that combination on Leather rather than return
   something other than what was asked.
-- **`connect` returns only the address.** Core delivers a connect result as a single address
-  string for every chain. A public key (which a caller needs to build Taproot key-path PSBTs)
-  can follow once a caller needs it.
+- **`connect` returns the address and its public key**, the compressed key that signs for the
+  account (Unisat `getPublicKey`, Leather's `publicKey` for the connected address). A caller
+  that locks coins in a Taproot leaf for the wallet to spend names this key in the leaf. Core
+  delivers the adapter's `connectResult(address)` for a connect request, so only Bitcoin's page
+  changes the result's shape.
+- **Script-path inputs are found in the PSBT.** A listed sign input whose PSBT input carries a
+  leaf script (`tap_scripts`) goes to the page in `scriptPathInputs`. Such an input can't be the
+  wallet's own BIP-86 key-path output, so the wallet must sign it with its untweaked key: the
+  Unisat driver sets `disableTweakSigner` on it, and Leather does so unasked. Callers pass plain
+  indexes; an unlisted script-path input is never signed, because neither wallet treats it as
+  its own.
 - **Every request carries its network**, defaulting to `BROWSER_WEB3_BTC_NETWORK`, and every
   address in it is checked against that network when the request is built.
 - Reads stay with the caller ("No read side" in ARCHITECTURE.md): UTXO lookup, fee estimation,
@@ -151,8 +161,8 @@ come when someone runs both.
   the matching `paymentType`.
 - **No `requestAccountChange`.** Neither wallet has an account-picker request, so the page keeps
   the passive wrong-address view, as TRON does.
-- **Core changes:** `app-core.js` adds `send_transfer` and `sign_psbt` to its tx-type list.
-  That's the only change. The adapter's `renderTxSuccessExtra` replaces the txid with a "not
+- **Core changes:** `app-core.js` adds `send_transfer` and `sign_psbt` to its tx-type list, and
+  delivers an adapter's optional `connectResult(address)` in place of the address. The adapter's `renderTxSuccessExtra` replaces the txid with a "not
   broadcast" note for a PSBT that was only signed.
 
 Unisat's API is shared, at least in part, by OKX (`window.okxwallet.bitcoin`) and Bitget

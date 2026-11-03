@@ -7,13 +7,25 @@ use bitcoin::Txid;
 use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Prepared, SignerError, Url};
 
 use crate::config;
-use crate::domain::{BtcAddress, BtcNetwork, MessageSignature, PsbtData, UncheckedAddress};
+use crate::domain::{
+    BtcAddress, BtcNetwork, BtcPublicKey, MessageSignature, PsbtData, UncheckedAddress,
+};
 use crate::types::{BtcRequest, SendTransferParams, SignMessageParams, SignPsbtParams};
 
 type Result<T> = std::result::Result<T, SignerError>;
 
 /// The embedded browser approval UI.
 pub const WEB_UI: &str = include_str!("../web/btc.html");
+
+/// The connected wallet account: the result of a `connect` (JSON `{address, publicKey}`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BtcAccount {
+    /// The account's address, on the request's network.
+    pub address: BtcAddress,
+    /// The key that signs for the account, which a caller names in a Taproot script leaf for the
+    /// wallet to sign through.
+    pub public_key: BtcPublicKey,
+}
 
 /// Result of a `sign_psbt`, checked against the request (see [`parse_signed_psbt`]).
 #[derive(Debug, Clone)]
@@ -77,15 +89,15 @@ impl BtcSigner {
         self.engine.submit(request).await
     }
 
-    /// Connect the wallet, returning its address.
+    /// Connect the wallet, returning its account.
     pub async fn connect_wallet(
         &self,
         network: Option<BtcNetwork>,
         address: Option<UncheckedAddress>,
-    ) -> Result<BtcAddress> {
+    ) -> Result<BtcAccount> {
         let network = network.unwrap_or(self.default_network);
         let req = BtcRequest::connect(network, address).map_err(invalid)?;
-        parse_address(&self.submit(req).await?, network)
+        parse_account(&self.submit(req).await?, network)
     }
 
     /// Pay one address, returning the broadcast txid.
@@ -109,11 +121,23 @@ impl BtcSigner {
     }
 }
 
-/// Parse a connected address and check it belongs to the requested network.
-pub fn parse_address(raw: &str, network: BtcNetwork) -> Result<BtcAddress> {
-    parse_signed::<UncheckedAddress>(raw, "address")?
-        .require_network(network)
-        .map_err(invalid)
+/// Parse a `connect` result (JSON `{address, publicKey}`) and check the address belongs to the
+/// requested network.
+pub fn parse_account(raw: &str, network: BtcNetwork) -> Result<BtcAccount> {
+    let parsed: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|e| SignerError::Invalid(format!("malformed connect result {raw:?}: {e}")))?;
+    let field = |key: &str| {
+        parsed
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| SignerError::Invalid(format!("connect result missing {key}: {raw}")))
+    };
+    Ok(BtcAccount {
+        address: parse_signed::<UncheckedAddress>(field("address")?, "address")?
+            .require_network(network)
+            .map_err(invalid)?,
+        public_key: parse_signed(field("publicKey")?, "public key")?,
+    })
 }
 
 /// Parse a `sign_psbt` result (JSON `{psbt, txid?}`) and check it signs the same transaction as
@@ -201,9 +225,19 @@ mod tests {
     }
 
     #[test]
-    fn connected_address_must_match_the_network() {
+    fn connected_account_must_match_the_network_and_carry_a_key() {
         let tb = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
-        assert!(parse_address(tb, BtcNetwork::Signet).is_ok());
-        assert!(parse_address(tb, BtcNetwork::Mainnet).is_err());
+        let key = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+        let raw = serde_json::json!({ "address": tb, "publicKey": key }).to_string();
+        let account = parse_account(&raw, BtcNetwork::Signet).unwrap();
+        assert_eq!(account.address.to_string(), tb);
+        assert_eq!(account.public_key.to_string(), key);
+        assert!(parse_account(&raw, BtcNetwork::Mainnet).is_err());
+        assert!(
+            parse_account(tb, BtcNetwork::Signet).is_err(),
+            "bare address"
+        );
+        let no_key = serde_json::json!({ "address": tb }).to_string();
+        assert!(parse_account(&no_key, BtcNetwork::Signet).is_err());
     }
 }

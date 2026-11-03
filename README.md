@@ -141,9 +141,9 @@ in TronLink's `tronWeb`; the Rust side only routes requests.
 #### Bitcoin
 
 ```sh
-browser-web3-signer btc connect --network signet
+browser-web3-signer btc connect --network signet                        # address and public key
 browser-web3-signer btc send --to bc1… --amount 15000 --fee-rate 3     # sats (1 BTC = 1e8 sats)
-browser-web3-signer btc sign-psbt --psbt-file ./tx.psbt --sign-input 0  # hex or base64
+browser-web3-signer btc sign-psbt --psbt-file ./tx.psbt --sign-input 0  # hex or base64; signs a Taproot leaf naming the wallet's key too
 browser-web3-signer btc sign-psbt --psbt cHNidP8… --broadcast
 browser-web3-signer btc sign-message --message "hello"                   # BIP-322; --protocol ecdsa
 ```

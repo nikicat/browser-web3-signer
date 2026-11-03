@@ -3,7 +3,7 @@
  *
  * Models the parts of Unisat's page provider the adapter uses (see
  * `docs/adr/0001-bitcoin-support.md`): one address per chain, `getChain`/`switchChain` (which
- * changes the address, as the real wallet does), `sendBitcoin`, `signPsbt`, `pushPsbt`,
+ * changes the address, as the real wallet does), `getPublicKey`, `sendBitcoin`, `signPsbt`, `pushPsbt`,
  * `signMessage`, and `accountsChanged`/`networkChanged` events. Every call is recorded in
  * `window.__unisatCalls` so specs can assert what the page asked for.
  */
@@ -17,6 +17,16 @@ export const SIGNET_ADDRESS = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
 export const PSBT_HEX =
   "70736274ff01003f0200000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffff010000000000000000036a010000000000000a0f0102030405060708090f0102030405060708090a0b0c0d0e0f0000";
 export const PSBT_TXID = "75c5c9665a570569ad77dd1279e6fd4628a093c4dcbf8d41532614044c14c115";
+
+/**
+ * PSBT_HEX with a second input, input 0 spending a Taproot leaf that names the key; the same
+ * bytes as `SCRIPT_PATH_PSBT_HEX` in the btc crate's domain tests.
+ */
+export const SCRIPT_PATH_PSBT_HEX =
+  "70736274ff0100680200000002ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffff010000000000000000036a010000000000002215c179be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798232079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798acc00a0f0102030405060708090f0102030405060708090a0b0c0d0e0f000000";
+
+/** The mock Unisat account's public key (the secp256k1 generator, compressed). */
+export const UNISAT_PUBLIC_KEY = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
 export const FAKE_TXID = "ab".repeat(32);
 export const FAKE_SIGNATURE = "AkcwRAIgZmFrZS1zaWduYXR1cmU=";
@@ -34,6 +44,7 @@ interface MockUnisatConfig {
   chain: UnisatChain;
   rejectSign: boolean;
   addresses: { mainnet: string; test: string };
+  publicKey: string;
   fakes: { txid: string; signature: string; psbtTxid: string };
 }
 
@@ -42,6 +53,7 @@ export function addMockUnisat(ctx: Pick<BrowserContext, "addInitScript">, option
     chain: options?.chain ?? "BITCOIN_MAINNET",
     rejectSign: options?.rejectSign ?? false,
     addresses: { mainnet: MAINNET_ADDRESS, test: SIGNET_ADDRESS },
+    publicKey: UNISAT_PUBLIC_KEY,
     fakes: { txid: FAKE_TXID, signature: FAKE_SIGNATURE, psbtTxid: PSBT_TXID },
   });
 }
@@ -93,6 +105,9 @@ function installMockUnisat(cfg: MockUnisatConfig) {
       record("requestAccounts");
       return [address()];
     },
+    async getPublicKey() {
+      return cfg.publicKey;
+    },
     async sendBitcoin(to: string, sats: number, options?: { feeRate?: number }) {
       record("sendBitcoin", to, sats, options);
       maybeReject("transfer");
@@ -120,6 +135,9 @@ function installMockUnisat(cfg: MockUnisatConfig) {
 
 export const LEATHER_SEGWIT_ADDRESS = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
 export const LEATHER_TAPROOT_ADDRESS = "bcrt1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqc8gma6";
+/** The public keys the mock Leather reports for its two addresses. */
+export const LEATHER_SEGWIT_PUBLIC_KEY = "02" + "11".repeat(32);
+export const LEATHER_TAPROOT_PUBLIC_KEY = "03" + "22".repeat(32);
 
 export interface MockLeatherOptions {
   /** Reject signing calls with Leather's user-rejection error. */
@@ -130,6 +148,7 @@ interface MockLeatherConfig {
   rejectSign: boolean;
   segwit: string;
   taproot: string;
+  publicKeys: { segwit: string; taproot: string };
   fakes: { txid: string; signature: string; psbtTxid: string };
 }
 
@@ -143,6 +162,7 @@ export function addMockLeather(ctx: Pick<BrowserContext, "addInitScript">, optio
     rejectSign: options?.rejectSign ?? false,
     segwit: LEATHER_SEGWIT_ADDRESS,
     taproot: LEATHER_TAPROOT_ADDRESS,
+    publicKeys: { segwit: LEATHER_SEGWIT_PUBLIC_KEY, taproot: LEATHER_TAPROOT_PUBLIC_KEY },
     fakes: { txid: FAKE_TXID, signature: FAKE_SIGNATURE, psbtTxid: PSBT_TXID },
   });
 }
@@ -166,8 +186,8 @@ function installMockLeather(cfg: MockLeatherConfig) {
       if (method === "getAddresses") {
         return ok({
           addresses: [
-            { symbol: "BTC", type: "p2wpkh", address: cfg.segwit, publicKey: "02" + "11".repeat(32) },
-            { symbol: "BTC", type: "p2tr", address: cfg.taproot, publicKey: "03" + "22".repeat(32) },
+            { symbol: "BTC", type: "p2wpkh", address: cfg.segwit, publicKey: cfg.publicKeys.segwit },
+            { symbol: "BTC", type: "p2tr", address: cfg.taproot, publicKey: cfg.publicKeys.taproot },
             { symbol: "STX", address: "ST000000000000000000002AMW42H", publicKey: "03" + "33".repeat(32) },
           ],
         });
