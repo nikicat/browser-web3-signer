@@ -1,8 +1,9 @@
 # browser-web3-signer — TypeScript binding
 
 A thin TypeScript client over the Rust `serve` control API, plus a **viem** transport and hybrid
-account. It lets a Node program sign EVM transactions and messages with the user's own browser
-wallet (MetaMask, Rabby, …) — the private key never leaves the browser.
+account. It lets a Node program sign EVM, TRON and Bitcoin transactions and messages with the user's
+own browser wallet (MetaMask, Rabby, TronLink, Unisat, Leather, …) — the private key never
+leaves the browser.
 
 ## How it works
 
@@ -50,8 +51,8 @@ If nothing resolves, the error explains the fixes (reinstall for the
 
 ## Usage
 
-The root entry (`browser-web3-signer`) is viem-free: it exports `WalletSignerClient` and
-`ServeProcess` only. The viem transport and account come from `browser-web3-signer/viem`,
+The root entry (`browser-web3-signer`) is viem-free: it exports `WalletSignerClient`,
+`BtcSignerClient` and `ServeProcess` only. The viem transport and account come from `browser-web3-signer/viem`,
 so `viem` is an optional peer dependency that consumers who only drive the control API
 never have to install.
 
@@ -79,6 +80,23 @@ const hash2 = await wallet.sendTransaction({
 
 await signer.shutdown(); // kill the subprocess when done
 ```
+
+### Bitcoin
+
+```ts
+import { BtcSignerClient } from "browser-web3-signer";
+
+await using btc = new BtcSignerClient({ defaultNetwork: "mainnet" });
+const address = await btc.connectWallet();
+const txid = await btc.sendTransfer({ to: "bc1…", amount: 10_000n, feeRate: 2 }); // sats, sat/vB
+const { psbt } = await btc.signPsbt({ psbt: unsignedPsbt.toHex() }); // hex or base64
+const sig = await btc.signMessage({ message: "hello" }); // BIP-322, base64
+```
+
+`serve` checks every Bitcoin result against its request before returning it: the address is on
+the request's network, a signed PSBT is for the same transaction, and a broadcast txid matches it.
+`signPsbt` returns `{ psbt, txid? }`, with `txid` only when you passed `broadcast: true`. Leather
+finalizes only when broadcasting, so `finalize: true` without `broadcast` is refused for it.
 
 `connect`/`send`/`sign` block until you approve (or reject) in the browser wallet. A rejection
 surfaces as a thrown `Error`; a connected-address mismatch as `WrongWalletAddressError`.

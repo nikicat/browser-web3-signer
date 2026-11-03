@@ -369,10 +369,10 @@ All four interfaces cover **EVM and TRON** end to end: connect, send/trigger/dep
 message + typed-data signing, with an embedded approval UI per chain. Releases are
 lockstep across the GitHub binaries, crates.io, npm, and the Go module tag.
 
-**Bitcoin** (Unisat, Leather) is in the CLI and the Rust crate
-[`browser-web3-signer-btc`](crates/browser-web3-signer-btc): connect, send, sign-PSBT,
-sign-message. The TypeScript and Go bindings and other Bitcoin wallets (Xverse) are
-next; see [ADR 0001](docs/adr/0001-bitcoin-support.md). `just e2e-leather` runs the CLI against
+**Bitcoin** (Unisat, Leather) is in the CLI, the Rust crate
+[`browser-web3-signer-btc`](crates/browser-web3-signer-btc), and the TypeScript
+(`BtcSignerClient`) and Go (`BtcClient`) bindings: connect, send, sign-PSBT, sign-message. Other
+Bitcoin wallets (Xverse) are next; see [ADR 0001](docs/adr/0001-bitcoin-support.md). `just e2e-leather` runs the CLI against
 the real Leather extension on a throwaway regtest chain.
 
 Deferred: a full multi-client daemon (discovery file, auth, request queue, SSE), warranted only if

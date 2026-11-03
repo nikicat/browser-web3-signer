@@ -21,6 +21,8 @@ const (
 	ChainEVM Chain = "evm"
 	// ChainTRON drives a TRON wallet (`serve --chain tron`).
 	ChainTRON Chain = "tron"
+	// ChainBTC drives a Bitcoin wallet (`serve --chain btc`).
+	ChainBTC Chain = "btc"
 )
 
 // binEnvVar overrides binary resolution with an explicit path.

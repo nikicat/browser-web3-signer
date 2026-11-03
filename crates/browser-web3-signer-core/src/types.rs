@@ -30,6 +30,14 @@ pub trait Request: Serialize + Sized + Clone + Send + Sync + 'static {
     /// One source of truth for the request wire shape, shared by the `serve` control API and the
     /// e2e harness so the two cannot drift.
     fn from_json(body: &serde_json::Value) -> Result<Self, String>;
+
+    /// Check a wallet's raw result against this request before the `serve` control API hands it
+    /// to a binding, so every binding gets the chain's result checks without reimplementing them.
+    /// Errors (as a human-readable reason) on a result that is malformed or doesn't match the
+    /// request. The default accepts anything.
+    fn check_result(&self, _result: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Metadata common to every chain request, flattened into its JSON as `{ "id": "<uuid>" }`.

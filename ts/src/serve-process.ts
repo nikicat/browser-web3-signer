@@ -15,7 +15,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 import { resolvePlatformBinary, supportedPlatforms, platformPackage } from "./platform.ts";
 
 /** Which chain the spawned `serve` process drives. */
-export type Chain = "evm" | "tron";
+export type Chain = "evm" | "tron" | "btc";
 
 /** Options for {@link ServeProcess}. */
 export interface ServeProcessOptions {

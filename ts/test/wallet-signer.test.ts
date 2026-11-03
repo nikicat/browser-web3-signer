@@ -14,7 +14,7 @@ import { dirname, resolve } from "node:path";
 
 import { createWalletClient, http } from "viem";
 
-import { WalletSignerClient } from "../src/client.ts";
+import { BtcSignerClient, WalletSignerClient } from "../src/client.ts";
 import { connectWalletViem } from "../src/viem-account.ts";
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
@@ -129,5 +129,51 @@ describe("viem integration", () => {
       value: 1000000000000000000n,
     });
     assert.match(hash, /^0x[a-f0-9]+$/i);
+  });
+});
+
+describe("BtcSignerClient", () => {
+  // Regtest throughout: the fake wallet tells Bitcoin requests apart by a Bitcoin-only network.
+  const ADDRESS = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"; // the fake wallet's
+  // rust-bitcoin's BIP-174 test vector and its txid.
+  const PSBT =
+    "70736274ff01003f0200000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffff010000000000000000036a010000000000000a0f0102030405060708090f0102030405060708090a0b0c0d0e0f0000";
+  const PSBT_TXID = "75c5c9665a570569ad77dd1279e6fd4628a093c4dcbf8d41532614044c14c115";
+  let client: BtcSignerClient;
+
+  before(async () => {
+    client = new BtcSignerClient({ browser, defaultNetwork: "regtest" });
+    await client.start();
+  });
+
+  after(async () => {
+    await client.shutdown();
+  });
+
+  test("connectWallet returns the wallet's address", async () => {
+    assert.equal(await client.connectWallet(), ADDRESS);
+  });
+
+  test("sendTransfer returns the txid", async () => {
+    const txid = await client.sendTransfer({ to: ADDRESS, amount: 10_000n, feeRate: 2 });
+    assert.equal(txid, "ab".repeat(32));
+  });
+
+  test("signPsbt returns the PSBT, with the txid only when broadcast", async () => {
+    assert.deepEqual(await client.signPsbt({ psbt: PSBT, signInputs: [0] }), { psbt: PSBT });
+    const broadcast = await client.signPsbt({ psbt: PSBT, broadcast: true });
+    assert.deepEqual(broadcast, { psbt: PSBT, txid: PSBT_TXID });
+  });
+
+  test("signMessage returns a base64 signature", async () => {
+    const sig = await client.signMessage({ message: "hello", address: ADDRESS });
+    assert.equal(Buffer.from(sig, "base64").length, 65);
+  });
+
+  test("serve refuses an address from another network", async () => {
+    await assert.rejects(
+      client.connectWallet({ address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq" }),
+      /regtest/,
+    );
   });
 });

@@ -99,3 +99,37 @@ func TestParseResultWrapsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "wallet returned invalid tx hash")
 }
+
+func TestParseBtcTxid(t *testing.T) {
+	const s = "75c5c9665a570569ad77dd1279e6fd4628a093c4dcbf8d41532614044c14c115"
+	txid, err := ParseBtcTxid(s)
+	require.NoError(t, err)
+	assert.Equal(t, s, txid.String())
+
+	for _, bad := range []string{"", "0x" + s, s[:62], s + "00", strings.Repeat("zz", 32)} {
+		_, err := ParseBtcTxid(bad)
+		assert.Error(t, err, "input %q", bad)
+	}
+}
+
+func TestParseBtcSignedPsbt(t *testing.T) {
+	const txid = "75c5c9665a570569ad77dd1279e6fd4628a093c4dcbf8d41532614044c14c115"
+	psbt := []byte("psbt\xff\x00")
+
+	// Hex without a txid (not broadcast) and base64 with one decode to the same bytes.
+	r, err := parseBtcSignedPsbt(`{"psbt":"70736274ff00"}`)
+	require.NoError(t, err)
+	assert.Equal(t, psbt, r.Psbt)
+	assert.Nil(t, r.Txid)
+
+	r, err = parseBtcSignedPsbt(`{"psbt":"cHNidP8A","txid":"` + txid + `"}`)
+	require.NoError(t, err)
+	assert.Equal(t, psbt, r.Psbt)
+	require.NotNil(t, r.Txid)
+	assert.Equal(t, txid, r.Txid.String())
+
+	for _, bad := range []string{"not json", `{"psbt":"!!"}`, `{"psbt":"00","txid":"nope"}`} {
+		_, err := parseBtcSignedPsbt(bad)
+		assert.Error(t, err, "input %q", bad)
+	}
+}

@@ -44,6 +44,25 @@ interface RequestResponse {
   code?: string;
 }
 
+/** POST a request to the control API and unwrap its result, mapping coded errors to types. */
+async function controlRequest(serve: ServeProcess, body: Record<string, unknown>): Promise<string> {
+  const baseUrl = await serve.start();
+  const res = await fetch(`${baseUrl}/api/v1/request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const json = (await res.json()) as RequestResponse;
+  if (json.success && json.result !== undefined) return json.result;
+
+  const message = json.error ?? `request failed (HTTP ${res.status})`;
+  if (json.code === SignerErrorCode.WrongWalletAddress) {
+    throw new WrongWalletAddressError(message);
+  }
+  throw new Error(message);
+}
+
 /** Options for {@link WalletSignerClient}. */
 export interface WalletSignerClientOptions extends ServeProcessOptions {
   /** Default chain id (EVM) / network — sent when a request omits one. */
@@ -114,23 +133,8 @@ export class WalletSignerClient implements AsyncDisposable {
     await this.shutdown();
   }
 
-  /** POST a request to the control API and unwrap its result, mapping coded errors to types. */
   async #request(body: Record<string, unknown>): Promise<string> {
-    const baseUrl = await this.#serve.start();
-    const res = await fetch(`${baseUrl}/api/v1/request`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    const json = (await res.json()) as RequestResponse;
-    if (json.success && json.result !== undefined) return json.result;
-
-    const message = json.error ?? `request failed (HTTP ${res.status})`;
-    if (json.code === SignerErrorCode.WrongWalletAddress) {
-      throw new WrongWalletAddressError(message);
-    }
-    throw new Error(message);
+    return controlRequest(this.#serve, body);
   }
 
   /** Connect a wallet, returning the connected address. */
@@ -167,5 +171,119 @@ export class WalletSignerClient implements AsyncDisposable {
       ...params,
       chainId: params.chainId ?? this.#defaultChainId,
     });
+  }
+}
+
+/** A Bitcoin network, as the bridge names it. */
+export type BtcNetwork = "mainnet" | "testnet" | "testnet4" | "signet" | "regtest";
+
+/** Options for {@link BtcSignerClient}. */
+export interface BtcSignerClientOptions extends ServeProcessOptions {
+  /** Sent when a request omits a network; else `serve`'s (BROWSER_WEB3_BTC_NETWORK or mainnet). */
+  defaultNetwork?: BtcNetwork;
+}
+
+/** Parameters for {@link BtcSignerClient.sendTransfer}. */
+export interface BtcSendTransferParams {
+  to: string;
+  /** Amount in sats. */
+  amount: bigint | number;
+  /** Expected sender; a mismatch is rejected. */
+  from?: string;
+  /** Fee-rate hint in sat/vB. */
+  feeRate?: number;
+  network?: BtcNetwork;
+}
+
+/** Parameters for {@link BtcSignerClient.signPsbt}. */
+export interface BtcSignPsbtParams {
+  /** The PSBT, hex or base64 (e.g. bitcoinjs-lib's `psbt.toHex()`). */
+  psbt: string;
+  /** Input indexes to sign; omitted means every input the wallet owns. */
+  signInputs?: number[];
+  /** Finalize the signed inputs. Leather finalizes only when broadcasting. */
+  finalize?: boolean;
+  /** Broadcast through the wallet after signing (implies `finalize`). */
+  broadcast?: boolean;
+  /** Expected signer; a mismatch is rejected. */
+  from?: string;
+  network?: BtcNetwork;
+}
+
+/** Result of {@link BtcSignerClient.signPsbt}. */
+export interface BtcSignedPsbt {
+  /** The signed PSBT, as the wallet returned it (hex for Unisat and Leather). */
+  psbt: string;
+  /** The broadcast txid; present only when the request broadcast. */
+  txid?: string;
+}
+
+/** Parameters for {@link BtcSignerClient.signMessage}. */
+export interface BtcSignMessageParams {
+  message: string;
+  /** Address to sign with. */
+  address?: string;
+  /** Signature scheme; the bridge defaults to `bip322`. */
+  protocol?: "bip322" | "ecdsa";
+  network?: BtcNetwork;
+}
+
+/**
+ * Bitcoin over a managed `serve --chain btc` subprocess (Unisat, Leather). `serve` checks each
+ * result against its request before returning it: the address is on the request's network, a
+ * signed PSBT is for the same transaction, and a broadcast txid matches it.
+ */
+export class BtcSignerClient implements AsyncDisposable {
+  readonly #serve: ServeProcess;
+  readonly #defaultNetwork?: BtcNetwork;
+
+  constructor(options?: BtcSignerClientOptions) {
+    this.#serve = new ServeProcess("btc", options);
+    this.#defaultNetwork = options?.defaultNetwork;
+  }
+
+  /** Start the subprocess (idempotent). Called automatically on first request. */
+  async start(): Promise<void> {
+    await this.#serve.start();
+  }
+
+  /** Kill the subprocess and release the port. */
+  async shutdown(): Promise<void> {
+    await this.#serve.stop();
+  }
+
+  /** `await using client = new BtcSignerClient(...)` — {@link shutdown} on scope exit. */
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.shutdown();
+  }
+
+  #request<P extends { network?: BtcNetwork }>(type: string, params: P): Promise<string> {
+    const network = params.network ?? this.#defaultNetwork;
+    return controlRequest(this.#serve, { type, ...params, network });
+  }
+
+  /** Connect the wallet, returning its address. */
+  async connectWallet(options?: { network?: BtcNetwork; address?: string }): Promise<string> {
+    return this.#request("connect", { ...options });
+  }
+
+  /** Pay one address (the wallet selects coins, signs and broadcasts), returning the txid. */
+  async sendTransfer(params: BtcSendTransferParams): Promise<string> {
+    return this.#request("send_transfer", {
+      ...params,
+      amount: params.amount.toString(),
+      feeRate: params.feeRate?.toString(),
+    });
+  }
+
+  /** Sign a PSBT, returning it (and the txid, when broadcast). */
+  async signPsbt(params: BtcSignPsbtParams): Promise<BtcSignedPsbt> {
+    const { psbt, txid } = JSON.parse(await this.#request("sign_psbt", params)) as BtcSignedPsbt;
+    return txid === undefined ? { psbt } : { psbt, txid };
+  }
+
+  /** Sign a text message, returning the base64 signature. */
+  async signMessage(params: BtcSignMessageParams): Promise<string> {
+    return this.#request("sign_message", params);
   }
 }
