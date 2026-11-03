@@ -18,7 +18,7 @@ use crate::{CliContext, OutputFormat, flow, output};
 pub(crate) enum BtcCommand {
     /// Connect the wallet and print its address and public key.
     Connect {
-        /// Network (mainnet|testnet|testnet4|signet|regtest; defaults to env / mainnet).
+        /// Network (mainnet|testnet|testnet4|signet|regtest, testnet3 = testnet; defaults to env / mainnet).
         #[arg(long)]
         network: Option<BtcNetwork>,
         /// Expected wallet address; the UI rejects a mismatch.

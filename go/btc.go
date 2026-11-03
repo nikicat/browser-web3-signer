@@ -12,7 +12,8 @@ import (
 // (Unisat, Leather), over a managed `serve --chain btc` subprocess. Construct one with
 // [NewBtcClient] and reuse it.
 //
-// Network is one of "mainnet", "testnet", "testnet4", "signet", "regtest" (empty: the
+// Network is one of "mainnet", "testnet" (or "testnet3", as btcd's chaincfg.Params.Name
+// has it), "testnet4", "signet", "regtest" (empty: the
 // `serve` process's default, BROWSER_WEB3_BTC_NETWORK or mainnet). Amounts are sats and fee
 // rates sat/vB. `serve` checks every result against its request before returning it (the
 // address is on the request's network, a signed PSBT is for the same transaction, a

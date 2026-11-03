@@ -174,8 +174,8 @@ export class WalletSignerClient implements AsyncDisposable {
   }
 }
 
-/** A Bitcoin network, as the bridge names it. */
-export type BtcNetwork = "mainnet" | "testnet" | "testnet4" | "signet" | "regtest";
+/** A Bitcoin network, as the bridge names it; "testnet3" is another name for "testnet". */
+export type BtcNetwork = "mainnet" | "testnet" | "testnet3" | "testnet4" | "signet" | "regtest";
 
 /** Options for {@link BtcSignerClient}. */
 export interface BtcSignerClientOptions extends ServeProcessOptions {
