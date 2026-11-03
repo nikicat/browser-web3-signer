@@ -28,7 +28,7 @@ crates/
   browser-web3-signer-btc/    Bitcoin requests, domain types, embedded UI in web/btc.html (lib)
   browser-web3-signer/        the `browser-web3-signer` binary (one-shot CLI)
 ts/                           TypeScript binding (viem transport + hybrid account over `serve`)
-go/                           Go binding (go-ethereum-typed client over `serve`)
+go/                           Go binding (stdlib-only client over `serve`)
 ```
 
 Edition 2024, MSRV 1.95.
@@ -254,11 +254,12 @@ child you spawned).
     drive it over `/api/v1`. A thin client covering both chains (connect / send / trigger /
     deploy / message + typed-data signing); every op takes a `context.Context`, coded errors
     surface as typed values (`WrongWalletAddressError`), and results are domain types parsed at
-    the boundary — go-ethereum's `common.Address` / `common.Hash` / `hexutil.Bytes` plus a custom
-    `TronAddress` (canonical 21 bytes, Base58Check), which has no go-ethereum equivalent. The
-    binding started stdlib-only, but that purity lost to interop: its consumers are almost
-    certainly go-ethereum programs, so well-established dependencies are taken where they fit
-    (go-ethereum for domain types, testify in tests) rather than avoided on principle. No
+    the boundary — `EVMAddress` / `TxHash` / `HexBytes` and `TronAddress` (canonical 21 bytes,
+    Base58Check). The binding depends on nothing outside the standard library (testify in tests
+    only). It once used go-ethereum's `common` / `hexutil` types, but a library's go-ethereum
+    requirement raises every consumer's, which silently broke a consumer's version-pinned fork
+    replace. `EVMAddress` and `TxHash` share go-ethereum's underlying types, so a consumer
+    converts with `common.Address(a)` / `common.Hash(h)`. No
     viem-style layer — Go's go-ethereum signing model fits the wallet's `eth_sendTransaction`
     poorly, so the raw client is the whole surface. Tested against the real subprocess, reusing the
     TS binding's fake-wallet stand-in.

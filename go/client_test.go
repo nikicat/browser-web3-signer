@@ -1,6 +1,7 @@
 package signer
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"os"
@@ -11,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -87,7 +87,7 @@ func TestEVMClient(t *testing.T) {
 			Value: "1000",
 		})
 		require.NoError(t, err)
-		assert.NotEqual(t, common.Hash{}, hash)
+		assert.NotEqual(t, TxHash{}, hash)
 		assert.Regexp(t, hexPattern, hash.String())
 	})
 
@@ -98,12 +98,11 @@ func TestEVMClient(t *testing.T) {
 	})
 
 	t.Run("SignMessageRaw", func(t *testing.T) {
-		hash := common.HexToHash("0x" + strings.Repeat("ff", 32))
-		sig, err := client.SignMessage(ctx, EVMSignMessageParams{Raw: hash.Bytes()})
+		sig, err := client.SignMessage(ctx, EVMSignMessageParams{Raw: bytes.Repeat([]byte{0xff}, 32)})
 		require.NoError(t, err)
 		assert.Equal(t, fakeRawSignature, sig.String())
 
-		_, err = client.SignMessage(ctx, EVMSignMessageParams{Message: "x", Raw: hash.Bytes()})
+		_, err = client.SignMessage(ctx, EVMSignMessageParams{Message: "x", Raw: HexBytes{0xff}})
 		assert.ErrorIs(t, err, errMessageAndRaw)
 	})
 
@@ -167,7 +166,7 @@ func TestTronClient(t *testing.T) {
 			FeeLimit: "1500000000",
 		})
 		require.NoError(t, err)
-		assert.NotEqual(t, common.Hash{}, deployed.TxHash)
+		assert.NotEqual(t, TxHash{}, deployed.TxHash)
 		assert.Equal(t, contract, deployed.ContractAddress.String())
 	})
 
