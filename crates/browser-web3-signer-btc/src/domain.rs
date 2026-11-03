@@ -68,7 +68,8 @@ impl FromStr for BtcNetwork {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
             "mainnet" => Ok(Self::Mainnet),
-            "testnet" => Ok(Self::Testnet),
+            // "testnet3" is how btcd's chaincfg and others name it.
+            "testnet" | "testnet3" => Ok(Self::Testnet),
             "testnet4" => Ok(Self::Testnet4),
             "signet" => Ok(Self::Signet),
             "regtest" => Ok(Self::Regtest),
@@ -395,6 +396,9 @@ pub(crate) mod tests {
             "regtest".parse::<BtcNetwork>().unwrap(),
             BtcNetwork::Regtest
         );
+        let testnet3 = "testnet3".parse::<BtcNetwork>().unwrap();
+        assert_eq!(testnet3, BtcNetwork::Testnet);
+        assert_eq!(testnet3.to_string(), "testnet");
         assert!("devnet".parse::<BtcNetwork>().is_err());
     }
 
