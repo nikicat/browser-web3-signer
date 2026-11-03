@@ -152,7 +152,7 @@ fn invalid(e: impl std::fmt::Display) -> SignerError {
 }
 
 /// Parse a wallet-returned string into a domain type, mapping failures to an error.
-fn parse_signed<T: std::str::FromStr>(raw: &str, what: &str) -> Result<T>
+pub(crate) fn parse_signed<T: std::str::FromStr>(raw: &str, what: &str) -> Result<T>
 where
     T::Err: std::fmt::Display,
 {

@@ -1,7 +1,8 @@
 # browser-web3-signer — Go binding
 
-A thin Go client over the Rust `serve` control API. It lets a Go program sign **EVM and TRON**
-transactions and messages with the user's own browser wallet (MetaMask, Rabby, TronLink, …) — the
+A thin Go client over the Rust `serve` control API. It lets a Go program sign **EVM, TRON and Bitcoin**
+transactions and messages with the user's own browser wallet (MetaMask, Rabby, TronLink, Unisat,
+Leather, …) — the
 private key never leaves the browser. It uses go-ethereum's `common`/`hexutil` packages for its
 EVM types, so results plug directly into the go-ethereum code most consumers already have (the
 client is thin by design, but doesn't avoid well-established dependencies on principle).
@@ -10,9 +11,9 @@ client is thin by design, but doesn't avoid well-established dependencies on pri
 
 ```
 your Go program
-  │  signer.NewEVMClient(...)   /   signer.NewTronClient(...)
+  │  signer.NewEVMClient(...)  /  signer.NewTronClient(...)  /  signer.NewBtcClient(...)
   ▼
-ServeProcess ── spawn ──►  browser-web3-signer serve --chain <evm|tron>   (Rust)
+ServeProcess ── spawn ──►  browser-web3-signer serve --chain <evm|tron|btc>   (Rust)
   │  ◄── reads bound port      owns the bridge + persistent browser tab
   │  POST /api/v1/request ────► opens the wallet, you approve, result returned
   ▼
@@ -62,6 +63,14 @@ func main() {
 
 	taddr, err := tron.Connect(ctx, signer.TronConnectParams{Network: "mainnet"})
 	txid, err := tron.SendTransaction(ctx, signer.TronSendTxParams{To: "T…", Amount: "1500000"}) // SUN
+
+	// Bitcoin:
+	btc := signer.NewBtcClient(signer.ClientOptions{})
+	defer btc.Shutdown()
+
+	baddr, err := btc.Connect(ctx, signer.BtcConnectParams{Network: "mainnet"})
+	btxid, err := btc.SendTransfer(ctx, signer.BtcSendTransferParams{To: "bc1…", Amount: 10000, Network: "mainnet"}) // sats
+	signed, err := btc.SignPsbt(ctx, signer.BtcSignPsbtParams{Psbt: psbtBytes, Network: "mainnet"})
 	_ = err
 }
 ```
@@ -74,7 +83,14 @@ Numeric amounts and fees are decimal strings (EVM wei, TRON SUN); EVM chain ids 
 Results are domain types — `Connect` returns a go-ethereum `common.Address` (or a `TronAddress`),
 `SendTransaction` and `TriggerContract` a `common.Hash`, `DeployContract` a `TronDeployResult`
 (tx hash + deployed contract address), and the sign methods a `hexutil.Bytes` signature — parsed
-and validated as they cross back from the wallet. See the [package docs](.) for the full API.
+and validated as they cross back from the wallet.
+
+Bitcoin results are checked by `serve` against the request before they reach Go (the address is on
+the request's network, a signed PSBT is for the same transaction, a broadcast txid matches it), so
+`BtcClient` only decodes them: `Connect` returns the address string, `SendTransfer` a `BtcTxid`,
+`SignPsbt` a `BtcSignedPsbt` (PSBT bytes, plus the txid when broadcast) and `SignMessage` the
+signature bytes. PSBTs go in and come out as raw bytes, so you can use any PSBT library. See the
+[package docs](.) for the full API.
 
 ## Development
 

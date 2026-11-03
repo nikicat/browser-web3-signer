@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -185,5 +186,75 @@ func TestTronClient(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Regexp(t, hexPattern, sig.String())
+	})
+}
+
+func TestBtcClient(t *testing.T) {
+	binPath, fakeWallet := testEnv(t)
+	client := NewBtcClient(ClientOptions{BinPath: binPath, Browser: fakeWallet})
+	t.Cleanup(func() { _ = client.Shutdown() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	require.NoError(t, client.Start(ctx))
+
+	// Regtest throughout: the fake wallet tells Bitcoin requests apart by a Bitcoin-only network.
+	const (
+		network = "regtest"
+		address = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080" // the fake wallet's
+		// rust-bitcoin's BIP-174 test vector and its txid.
+		psbtHex  = "70736274ff01003f0200000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffff010000000000000000036a010000000000000a0f0102030405060708090f0102030405060708090a0b0c0d0e0f0000"
+		psbtTxid = "75c5c9665a570569ad77dd1279e6fd4628a093c4dcbf8d41532614044c14c115"
+	)
+	psbt, err := hex.DecodeString(psbtHex)
+	require.NoError(t, err)
+
+	t.Run("Connect", func(t *testing.T) {
+		addr, err := client.Connect(ctx, BtcConnectParams{Network: network})
+		require.NoError(t, err)
+		assert.Equal(t, address, addr)
+	})
+
+	t.Run("SendTransfer", func(t *testing.T) {
+		txid, err := client.SendTransfer(ctx, BtcSendTransferParams{To: address, Amount: 10000, FeeRate: 2, Network: network})
+		require.NoError(t, err)
+		assert.Equal(t, strings.Repeat("ab", 32), txid.String())
+	})
+
+	t.Run("SignPsbt", func(t *testing.T) {
+		signed, err := client.SignPsbt(ctx, BtcSignPsbtParams{Psbt: psbt, SignInputs: []uint32{0}, Network: network})
+		require.NoError(t, err)
+		assert.Equal(t, psbt, signed.Psbt)
+		assert.Nil(t, signed.Txid)
+	})
+
+	t.Run("SignPsbtBroadcast", func(t *testing.T) {
+		signed, err := client.SignPsbt(ctx, BtcSignPsbtParams{Psbt: psbt, Broadcast: true, Network: network})
+		require.NoError(t, err)
+		require.NotNil(t, signed.Txid)
+		assert.Equal(t, psbtTxid, signed.Txid.String())
+	})
+
+	t.Run("SignMessage", func(t *testing.T) {
+		sig, err := client.SignMessage(ctx, BtcSignMessageParams{Message: "hello", Address: address, Network: network})
+		require.NoError(t, err)
+		assert.Len(t, sig, 65)
+	})
+
+	t.Run("RejectsMismatchedBroadcastTxid", func(t *testing.T) {
+		// Another transaction (the vector with its output's value changed): the fake wallet still
+		// answers with the vector's txid, which `serve` must refuse.
+		other := strings.Replace(psbtHex, "010000000000000000036a", "010100000000000000036a", 1)
+		require.NotEqual(t, psbtHex, other)
+		otherPsbt, err := hex.DecodeString(other)
+		require.NoError(t, err)
+		_, err = client.SignPsbt(ctx, BtcSignPsbtParams{Psbt: otherPsbt, Broadcast: true, Network: network})
+		require.ErrorContains(t, err, "broadcast txid")
+	})
+
+	t.Run("RejectsAddressOnAnotherNetwork", func(t *testing.T) {
+		// `serve` refuses the request before any wallet sees it.
+		_, err := client.Connect(ctx, BtcConnectParams{Network: network, Address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"})
+		require.Error(t, err)
 	})
 }

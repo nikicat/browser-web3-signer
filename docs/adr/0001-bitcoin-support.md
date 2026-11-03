@@ -164,7 +164,10 @@ Unisat's API is shared, at least in part, by OKX (`window.okxwallet.bitcoin`) an
 `browser-web3-signer btc connect | send | sign-psbt | sign-message`, with `--network` /
 `BROWSER_WEB3_BTC_NETWORK` (default `mainnet`) and `BROWSER_WEB3_BTC_PORT` for the bridge port
 (default 3849, next to EVM's 3847 and TRON's 3848).
-`serve --chain btc` reuses the generic path.
+`serve --chain btc` reuses the generic path, and checks each wallet result against its request
+(`Request::check_result`: the address network, the PSBT txid match, the broadcast txid) before
+returning it, so the Go `BtcClient` and TypeScript `BtcSignerClient` get the CLI's checks without
+reimplementing them.
 
 ### 6. Testing: mocks for both drivers, the real Leather extension for the whole path
 
@@ -200,7 +203,6 @@ Unisat's API is shared, at least in part, by OKX (`window.okxwallet.bitcoin`) an
 - **More wallet families**: Sats Connect / WBIP (Xverse, Magic Eden), then Phantom (it has no
   send). Each needs its API checked against source first.
 - A wallet picker for people with more than one Bitcoin wallet installed.
-- TS and Go bindings for Bitcoin.
 - Ordinals, Runes, BRC-20, multisig, `signPsbts` (batch).
 
 ## Alternatives considered

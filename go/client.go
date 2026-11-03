@@ -30,7 +30,7 @@ type WrongWalletAddressError struct {
 	*RequestError
 }
 
-// ClientOptions configures an [EVMClient] or [TronClient] (and the `serve` subprocess it
+// ClientOptions configures an [EVMClient], [TronClient] or [BtcClient] (and the `serve` subprocess it
 // supervises).
 type ClientOptions struct {
 	// BinPath is an explicit path to the `browser-web3-signer` binary; see [ServeOptions].

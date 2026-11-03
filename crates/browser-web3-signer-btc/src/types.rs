@@ -4,15 +4,17 @@
 //! Every request carries its network, and every address in it is checked against that network
 //! when the request is built, so a mainnet address on a signet request never reaches the wallet.
 
+use bitcoin::Txid;
 use browser_web3_signer_core::parse::{opt_parsed, req_parsed, str_field};
 use browser_web3_signer_core::{DomainParseError, Request, RequestMeta, UrlKind};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::config;
 use crate::domain::{
-    BtcAddress, BtcNetwork, MessageProtocol, PsbtData, SatPerVb, Sats, UncheckedAddress,
+    BtcAddress, BtcNetwork, MessageProtocol, MessageSignature, PsbtData, SatPerVb, Sats,
+    UncheckedAddress,
 };
+use crate::{config, signer};
 
 /// A pending Bitcoin request. The `type` discriminator is derived from the variant; fields use
 /// camelCase to match the UI.
@@ -217,6 +219,21 @@ impl Request for BtcRequest {
         }
     }
 
+    /// The checks [`BtcSigner`](crate::BtcSigner) applies to its results, for the `serve` control
+    /// API: the address is on the request's network, a txid or signature parses, and a signed
+    /// PSBT is for the requested transaction.
+    fn check_result(&self, result: &str) -> Result<(), String> {
+        let checked = match self {
+            Self::Connect { network, .. } => signer::parse_address(result, *network).map(drop),
+            Self::SendTransfer { .. } => signer::parse_signed::<Txid>(result, "txid").map(drop),
+            Self::SignPsbt { psbt, .. } => signer::parse_signed_psbt(psbt, result).map(drop),
+            Self::SignMessage { .. } => {
+                signer::parse_signed::<MessageSignature>(result, "signature").map(drop)
+            }
+        };
+        checked.map_err(|e| e.to_string())
+    }
+
     fn from_json(body: &serde_json::Value) -> Result<Self, String> {
         let typ = str_field(body, "type")?;
         let network = opt_parsed(body, "network")?.unwrap_or_else(config::default_network);
@@ -300,6 +317,30 @@ mod tests {
         assert_eq!(json["amount"], "1500");
         assert_eq!(json["feeRate"], "3");
         assert!(json.get("from").is_none());
+    }
+
+    #[test]
+    fn check_result_applies_the_signer_checks() {
+        let connect =
+            BtcRequest::from_json(&serde_json::json!({ "type": "connect", "network": "signet" }))
+                .unwrap();
+        assert!(connect.check_result(TEST).is_ok());
+        assert!(connect.check_result(MAIN).is_err());
+
+        let sign = BtcRequest::from_json(&serde_json::json!({
+            "type": "sign_psbt", "network": "mainnet", "psbt": PSBT_HEX,
+        }))
+        .unwrap();
+        assert!(
+            sign.check_result(&serde_json::json!({ "psbt": PSBT_HEX }).to_string())
+                .is_ok()
+        );
+        assert!(
+            sign.check_result(PSBT_HEX).is_err(),
+            "bare PSBT instead of {{psbt}}"
+        );
+        let wrong_txid = serde_json::json!({ "psbt": PSBT_HEX, "txid": "00".repeat(32) });
+        assert!(sign.check_result(&wrong_txid.to_string()).is_err());
     }
 
     #[test]

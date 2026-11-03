@@ -19,6 +19,13 @@ export {
   type SignableMessage,
   type SignMessageParams,
   type SignTypedDataParams,
+  BtcSignerClient,
+  type BtcNetwork,
+  type BtcSignerClientOptions,
+  type BtcSendTransferParams,
+  type BtcSignPsbtParams,
+  type BtcSignedPsbt,
+  type BtcSignMessageParams,
 } from "./client.ts";
 
 export { ServeProcess, type Chain, type ServeProcessOptions } from "./serve-process.ts";

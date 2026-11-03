@@ -52,8 +52,14 @@ async fn handle_request<R: Request>(
     };
 
     // submit = prepare + open browser + await the wallet's response. The request decides its own
-    // approval page via `Request::url_kind`, so nothing here is chain-specific.
-    match state.engine.submit(req).await {
+    // approval page via `Request::url_kind` and checks its own result via `Request::check_result`,
+    // so nothing here is chain-specific.
+    let sent = req.clone();
+    let checked = state.engine.submit(req).await.and_then(|result| {
+        sent.check_result(&result).map_err(SignerError::Invalid)?;
+        Ok(result)
+    });
+    match checked {
         Ok(result) => Json(json!({ "success": true, "result": result })).into_response(),
         Err(err) => signer_error_response(&err),
     }

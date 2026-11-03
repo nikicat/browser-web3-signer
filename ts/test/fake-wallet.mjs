@@ -16,6 +16,15 @@ const FAKE_TX_HASH = "0x" + "ab".repeat(32);
 const FAKE_SIGNATURE = "0x" + "cd".repeat(65);
 // Answers a `{ raw }` sign_message, so tests can tell which message shape reached the bridge.
 const FAKE_RAW_SIGNATURE = "0x" + "ee".repeat(65);
+// Bitcoin: `serve` checks these against the request, so they must be well-formed regtest values.
+const FAKE_BTC_ADDRESS = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
+const FAKE_BTC_TXID = "ab".repeat(32);
+const FAKE_BTC_SIGNATURE = Buffer.alloc(65, 0xcd).toString("base64");
+// The txid of the PSBT the binding tests sign (rust-bitcoin's BIP-174 vector); a
+// broadcast answers with it, as `serve` requires the txid to match the PSBT.
+const BTC_TEST_PSBT_TXID = "75c5c9665a570569ad77dd1279e6fd4628a093c4dcbf8d41532614044c14c115";
+// Networks only Bitcoin has (TRON's are mainnet/shasta/nile), so binding tests use these.
+const BTC_ONLY_NETWORKS = new Set(["testnet", "testnet4", "signet", "regtest"]);
 
 const url = process.argv[2];
 if (!url) {
@@ -27,7 +36,22 @@ const parsed = new URL(url);
 const id = parsed.pathname.split("/").pop();
 const base = `${parsed.protocol}//${parsed.host}`;
 
+function btcResultFor(request) {
+  switch (request.type) {
+    case "connect":
+      return FAKE_BTC_ADDRESS;
+    case "send_transfer":
+      return FAKE_BTC_TXID;
+    case "sign_psbt":
+      // Hands the PSBT back unchanged: still the same transaction, which is what `serve` checks.
+      return JSON.stringify({ psbt: request.psbt, txid: request.broadcast ? BTC_TEST_PSBT_TXID : undefined });
+    default:
+      return FAKE_BTC_SIGNATURE;
+  }
+}
+
 function resultFor(request) {
+  if (BTC_ONLY_NETWORKS.has(request?.network)) return btcResultFor(request);
   // TRON requests carry a `network` field (EVM ones a `chainId`); `trigger_contract` /
   // `deploy_contract` are TRON-only.
   const isTron = typeof request?.network === "string";
