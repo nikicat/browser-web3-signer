@@ -130,6 +130,18 @@ describe("viem integration", () => {
     });
     assert.match(hash, /^0x[a-f0-9]+$/i);
   });
+
+  test("wallet client deploys a contract through the transport, as a send without `to`", async () => {
+    const { account, transport } = await connectWalletViem(client, { address: FAKE_ADDRESS, chainId: 1 });
+    const walletClient = createWalletClient({ account: account.address, transport });
+    // the init code of a contract with no code: PUSH1 0 PUSH1 0 RETURN
+    const hash = await walletClient.deployContract({ account: account.address, chain: null, abi: [], bytecode: "0x60006000f3" });
+    assert.match(hash, /^0x[a-f0-9]+$/i);
+  });
+
+  test("sendTransaction refuses a contract creation without init code", async () => {
+    await assert.rejects(client.sendTransaction({ chainId: 1 }), /deploys a contract from 'data'/);
+  });
 });
 
 describe("BtcSignerClient", () => {

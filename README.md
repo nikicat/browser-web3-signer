@@ -115,6 +115,7 @@ stdout.
 ```sh
 browser-web3-signer evm connect --chain 1
 browser-web3-signer evm send-transaction --to 0x… --value 1000000000000000 --chain 1
+browser-web3-signer evm send-transaction --data 0x6080…   # no --to: deploys the init code as a new contract
 browser-web3-signer evm sign-message --message "hello"
 browser-web3-signer evm sign-message --raw 0x…        # exact bytes, e.g. a Safe message hash
 browser-web3-signer evm sign-typed-data --file ./typed-data.json    # {domain,types,primaryType,message}

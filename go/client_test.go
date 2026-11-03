@@ -91,6 +91,17 @@ func TestEVMClient(t *testing.T) {
 		assert.Regexp(t, hexPattern, hash.String())
 	})
 
+	t.Run("SendTransactionDeploysWithoutTo", func(t *testing.T) {
+		hash, err := client.SendTransaction(ctx, EVMSendTxParams{Data: "0x60006000f3"})
+		require.NoError(t, err)
+		assert.Regexp(t, hexPattern, hash.String())
+	})
+
+	t.Run("SendTransactionRefusesADeployWithoutData", func(t *testing.T) {
+		_, err := client.SendTransaction(ctx, EVMSendTxParams{})
+		require.ErrorContains(t, err, "deploys a contract from 'data'")
+	})
+
 	t.Run("SignMessage", func(t *testing.T) {
 		sig, err := client.SignMessage(ctx, EVMSignMessageParams{Message: "hello"})
 		require.NoError(t, err)

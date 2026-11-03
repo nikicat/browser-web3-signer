@@ -33,8 +33,9 @@ export function walletSignerTransport(
 
           case "eth_sendTransaction": {
             const [tx] = params as [Partial<Record<string, string>>];
-            if (!tx.to) throw new Error("eth_sendTransaction requires a `to` address");
-            const sendParams: SendTransactionParams = { to: tx.to };
+            // no `to` deploys `data` as a new contract, as viem's deployContract sends it
+            const sendParams: SendTransactionParams = {};
+            if (tx.to) sendParams.to = tx.to;
             if (tx.from) sendParams.from = tx.from;
             if (tx.data) sendParams.data = tx.data;
             if (tx.value) sendParams.value = BigInt(tx.value).toString();

@@ -34,10 +34,11 @@ type EVMConnectParams struct {
 	ChainName string `json:"chainName,omitempty"`
 }
 
-// EVMSendTxParams are the parameters for [EVMClient.SendTransaction]. To is required; the
-// rest are optional. Amounts/fees are decimal-string wei.
+// EVMSendTxParams are the parameters for [EVMClient.SendTransaction]. Without To, the
+// transaction deploys Data as a new contract, and the signer refuses one without Data;
+// the rest are optional. Amounts/fees are decimal-string wei.
 type EVMSendTxParams struct {
-	To                   string `json:"to"`
+	To                   string `json:"to,omitempty"`
 	From                 string `json:"from,omitempty"`
 	Value                string `json:"value,omitempty"`
 	Data                 string `json:"data,omitempty"`
@@ -101,7 +102,8 @@ func (c *EVMClient) Connect(ctx context.Context, params EVMConnectParams) (EVMAd
 	return parseResult(raw, ParseAddress)
 }
 
-// SendTransaction sends a transaction (or contract call) and returns the tx hash.
+// SendTransaction sends a transaction, a contract call or a contract deploy, and
+// returns the tx hash.
 func (c *EVMClient) SendTransaction(ctx context.Context, params EVMSendTxParams) (TxHash, error) {
 	params.ChainID = c.evmChainID(params.ChainID)
 	raw, err := c.request(ctx, struct {

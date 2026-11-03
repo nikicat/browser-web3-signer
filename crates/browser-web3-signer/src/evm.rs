@@ -32,11 +32,11 @@ pub(crate) enum EvmCommand {
         #[arg(long = "chain-name")]
         chain_name: Option<String>,
     },
-    /// Send ETH or call a contract.
+    /// Send ETH, call a contract, or deploy one (no `--to`, its init code in `--data`).
     SendTransaction {
-        /// Recipient / contract address (required).
-        #[arg(long)]
-        to: Address,
+        /// Recipient / contract address; without it, the tx deploys `--data` as a new contract.
+        #[arg(long, required_unless_present = "data")]
+        to: Option<Address>,
         /// Expected `from` address (UI rejects on mismatch).
         #[arg(long)]
         from: Option<Address>,
