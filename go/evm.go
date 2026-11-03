@@ -3,17 +3,14 @@ package signer
 import (
 	"context"
 	"errors"
-
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 // EVMClient signs EVM transactions and messages with the user's browser wallet, over a
 // managed `serve --chain evm` subprocess. Construct one with [NewEVMClient] and reuse it.
 //
 // Numeric amounts and fees are decimal-string wei (e.g. "1000000000000000000"); chain ids
-// are plain integers. Addresses are 0x-hex. Results are go-ethereum domain types
-// ([common.Address], [common.Hash], [hexutil.Bytes]), validated as they cross back from
+// are plain integers. Addresses are 0x-hex. Results are domain types
+// ([EVMAddress], [TxHash], [HexBytes]), validated as they cross back from
 // the wallet.
 type EVMClient struct {
 	core
@@ -56,7 +53,7 @@ type EVMSignMessageParams struct {
 	// Text, signed as its UTF-8 bytes.
 	Message string
 	// Bytes signed unchanged, such as a hash a Safe expects signed as-is; Message must be empty.
-	Raw     hexutil.Bytes
+	Raw     HexBytes
 	Address string
 	ChainID int64
 }
@@ -92,40 +89,40 @@ func (c *core) evmChainID(id int64) int64 {
 }
 
 // Connect connects a wallet and returns the connected address.
-func (c *EVMClient) Connect(ctx context.Context, params EVMConnectParams) (common.Address, error) {
+func (c *EVMClient) Connect(ctx context.Context, params EVMConnectParams) (EVMAddress, error) {
 	params.ChainID = c.evmChainID(params.ChainID)
 	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		EVMConnectParams
 	}{Type: "connect", EVMConnectParams: params})
 	if err != nil {
-		return common.Address{}, err
+		return EVMAddress{}, err
 	}
 	return parseResult(raw, ParseAddress)
 }
 
 // SendTransaction sends a transaction (or contract call) and returns the tx hash.
-func (c *EVMClient) SendTransaction(ctx context.Context, params EVMSendTxParams) (common.Hash, error) {
+func (c *EVMClient) SendTransaction(ctx context.Context, params EVMSendTxParams) (TxHash, error) {
 	params.ChainID = c.evmChainID(params.ChainID)
 	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		EVMSendTxParams
 	}{Type: "send_transaction", EVMSendTxParams: params})
 	if err != nil {
-		return common.Hash{}, err
+		return TxHash{}, err
 	}
 	return parseResult(raw, ParseTxHash)
 }
 
 // Asks the wallet to personal_sign the message and returns the signature. Errors without
 // contacting the wallet when params sets both Message and Raw.
-func (c *EVMClient) SignMessage(ctx context.Context, params EVMSignMessageParams) (hexutil.Bytes, error) {
+func (c *EVMClient) SignMessage(ctx context.Context, params EVMSignMessageParams) (HexBytes, error) {
 	if params.Message != "" && params.Raw != nil {
 		return nil, errMessageAndRaw
 	}
 	var message any = params.Message
 	if params.Raw != nil {
-		message = map[string]hexutil.Bytes{"raw": params.Raw}
+		message = map[string]HexBytes{"raw": params.Raw}
 	}
 	raw, err := c.request(ctx, signMessageRequest{
 		Type:    "sign_message",
@@ -140,7 +137,7 @@ func (c *EVMClient) SignMessage(ctx context.Context, params EVMSignMessageParams
 }
 
 // SignTypedData signs EIP-712 typed data and returns the signature.
-func (c *EVMClient) SignTypedData(ctx context.Context, params EVMSignTypedDataParams) (hexutil.Bytes, error) {
+func (c *EVMClient) SignTypedData(ctx context.Context, params EVMSignTypedDataParams) (HexBytes, error) {
 	params.ChainID = c.evmChainID(params.ChainID)
 	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`

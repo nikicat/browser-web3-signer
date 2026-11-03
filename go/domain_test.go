@@ -2,6 +2,7 @@ package signer
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -10,12 +11,13 @@ import (
 )
 
 func TestParseAddress(t *testing.T) {
-	// The EIP-55 all-caps test vector, so Hex() must render it back verbatim.
+	// An EIP-55 test vector: the checksum is accepted, not enforced, and String() renders
+	// lowercase.
 	const checksummed = "0x52908400098527886E0F7030069857D2E4169EE7"
 
 	a, err := ParseAddress(checksummed)
 	require.NoError(t, err)
-	assert.Equal(t, checksummed, a.Hex(), "Hex() renders the EIP-55 checksummed form")
+	assert.Equal(t, strings.ToLower(checksummed), a.String())
 
 	bare, err := ParseAddress(strings.TrimPrefix(checksummed, "0x"))
 	require.NoError(t, err)
@@ -35,7 +37,7 @@ func TestParseTxHash(t *testing.T) {
 	b, err := ParseTxHash(hex64)
 	require.NoError(t, err)
 	assert.Equal(t, a, b, "prefixed and bare parses agree")
-	assert.Equal(t, "0x"+hex64, a.Hex())
+	assert.Equal(t, "0x"+hex64, a.String())
 
 	for _, bad := range []string{"", "0x12", "0x" + hex64 + "ab"} {
 		_, err := ParseTxHash(bad)
@@ -53,6 +55,12 @@ func TestParseSignature(t *testing.T) {
 		_, err := ParseSignature(bad)
 		assert.Error(t, err, "input %q", bad)
 	}
+}
+
+func TestHexBytesMarshalsAsPrefixedHex(t *testing.T) {
+	encoded, err := json.Marshal(map[string]HexBytes{"raw": {0xde, 0xad}})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"raw":"0xdead"}`, string(encoded))
 }
 
 func TestParseTronAddress(t *testing.T) {

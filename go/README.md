@@ -3,9 +3,9 @@
 A thin Go client over the Rust `serve` control API. It lets a Go program sign **EVM, TRON and Bitcoin**
 transactions and messages with the user's own browser wallet (MetaMask, Rabby, TronLink, Unisat,
 Leather, …) — the
-private key never leaves the browser. It uses go-ethereum's `common`/`hexutil` packages for its
-EVM types, so results plug directly into the go-ethereum code most consumers already have (the
-client is thin by design, but doesn't avoid well-established dependencies on principle).
+private key never leaves the browser. It depends on nothing outside the standard library, so it
+never pins your go-ethereum. Its EVM types share go-ethereum's underlying types: convert with
+`common.Address(addr)` and `common.Hash(hash)`.
 
 ## How it works
 
@@ -80,9 +80,9 @@ respect the passed `context.Context` (cancel/deadline). A rejection surfaces as 
 a connected-address mismatch as a `*WrongWalletAddressError` (match with `errors.As`).
 
 Numeric amounts and fees are decimal strings (EVM wei, TRON SUN); EVM chain ids are integers.
-Results are domain types — `Connect` returns a go-ethereum `common.Address` (or a `TronAddress`),
-`SendTransaction` and `TriggerContract` a `common.Hash`, `DeployContract` a `TronDeployResult`
-(tx hash + deployed contract address), and the sign methods a `hexutil.Bytes` signature — parsed
+Results are domain types — `Connect` returns an `EVMAddress` (or a `TronAddress`),
+`SendTransaction` and `TriggerContract` a `TxHash`, `DeployContract` a `TronDeployResult`
+(tx hash + deployed contract address), and the sign methods a `HexBytes` signature — parsed
 and validated as they cross back from the wallet.
 
 Bitcoin results are checked by `serve` against the request before they reach Go (the address is on

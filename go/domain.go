@@ -9,47 +9,71 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
-
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 )
 
 // Domain types for wallet-returned values, mirroring the Rust chain layer (`domain.rs` /
 // core `bytes.rs`): the transport returns a raw string, and the typed client parses it
 // into the right domain type immediately, so a value that "is an address" cannot be
-// confused with one that "is a tx hash". EVM values use go-ethereum's primitives
-// ([common.Address], [common.Hash], [hexutil.Bytes]) — the types callers' go-ethereum
-// code already speaks; TRON addresses have no go-ethereum equivalent and are defined
-// here. Parsing validates at the boundary (go-ethereum's own HexToAddress/HexToHash
-// silently pad and truncate malformed input, so they are never used directly on wallet
-// results) and accepts hex with or without a `0x` prefix.
+// confused with one that "is a tx hash". The package defines its own types and depends on
+// no Ethereum library, so it never pins a caller's version of one. [EVMAddress] and
+// [TxHash] have the underlying types of go-ethereum's common.Address and common.Hash, so a
+// go-ethereum caller converts with common.Address(a) and common.Hash(h). Parsing validates
+// at the boundary and accepts hex with or without a `0x` prefix.
+
+// EVMAddress is a 20-byte EVM address.
+type EVMAddress [20]byte
+
+// String returns the address as lowercase 0x-prefixed hex (not EIP-55 checksummed).
+func (a EVMAddress) String() string { return "0x" + hex.EncodeToString(a[:]) }
+
+// TxHash is a 32-byte EVM or TRON transaction hash.
+type TxHash [32]byte
+
+// String returns the hash as 0x-prefixed hex.
+func (h TxHash) String() string { return "0x" + hex.EncodeToString(h[:]) }
+
+// HexBytes are bytes that JSON carries as a 0x-prefixed hex string, such as a signature.
+type HexBytes []byte
+
+// String returns the bytes as 0x-prefixed hex.
+func (b HexBytes) String() string { return "0x" + hex.EncodeToString(b) }
+
+// MarshalJSON encodes the bytes as a 0x-prefixed hex string.
+func (b HexBytes) MarshalJSON() ([]byte, error) { return json.Marshal(b.String()) }
 
 // ParseAddress parses and validates a 20-byte EVM address from hex (a `0x` prefix is
-// optional; the EIP-55 checksum is not enforced). Note [common.Address.Hex] renders the
-// EIP-55 checksummed form.
-func ParseAddress(s string) (common.Address, error) {
-	if !common.IsHexAddress(s) {
-		return common.Address{}, fmt.Errorf("invalid address %q", s)
+// optional; the EIP-55 checksum is not enforced).
+func ParseAddress(s string) (EVMAddress, error) {
+	var a EVMAddress
+	b, err := decodeHex(s, "address")
+	if err != nil {
+		return a, err
 	}
-	return common.HexToAddress(s), nil
+	if len(b) != len(a) {
+		return a, fmt.Errorf("invalid address %q: expected %d bytes, got %d", s, len(a), len(b))
+	}
+	copy(a[:], b)
+	return a, nil
 }
 
 // ParseTxHash parses and validates a 32-byte transaction hash from hex (a `0x` prefix is
 // optional).
-func ParseTxHash(s string) (common.Hash, error) {
+func ParseTxHash(s string) (TxHash, error) {
+	var h TxHash
 	b, err := decodeHex(s, "tx hash")
 	if err != nil {
-		return common.Hash{}, err
+		return h, err
 	}
-	if len(b) != common.HashLength {
-		return common.Hash{}, fmt.Errorf("invalid tx hash %q: expected %d bytes, got %d", s, common.HashLength, len(b))
+	if len(b) != len(h) {
+		return h, fmt.Errorf("invalid tx hash %q: expected %d bytes, got %d", s, len(h), len(b))
 	}
-	return common.BytesToHash(b), nil
+	copy(h[:], b)
+	return h, nil
 }
 
 // ParseSignature parses a non-empty ECDSA signature from hex (a `0x` prefix is optional;
 // typically 65 bytes, but variable length to tolerate wallet variance).
-func ParseSignature(s string) (hexutil.Bytes, error) {
+func ParseSignature(s string) (HexBytes, error) {
 	b, err := decodeHex(s, "signature")
 	if err != nil {
 		return nil, err
@@ -57,7 +81,7 @@ func ParseSignature(s string) (hexutil.Bytes, error) {
 	if len(b) == 0 {
 		return nil, fmt.Errorf("invalid signature %q: empty", s)
 	}
-	return hexutil.Bytes(b), nil
+	return HexBytes(b), nil
 }
 
 // TronAddress is a TRON address stored as its canonical 21 bytes: the `0x41` mainnet
@@ -95,7 +119,7 @@ func (a TronAddress) String() string { return base58CheckEncode(a[:]) }
 // TronDeployResult is the typed result of [TronClient.DeployContract]: the broadcast tx
 // hash and the deployed contract's address.
 type TronDeployResult struct {
-	TxHash          common.Hash
+	TxHash          TxHash
 	ContractAddress TronAddress
 }
 

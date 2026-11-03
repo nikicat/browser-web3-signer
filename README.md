@@ -291,8 +291,8 @@ func main() {
 }
 ```
 
-`NewTronClient` is the TRON counterpart. Results are go-ethereum types (`common.Address`,
-`common.Hash`, `hexutil.Bytes`); every operation takes a `context.Context`; coded errors
+`NewTronClient` is the TRON counterpart. Results are the binding's own `EVMAddress`, `TxHash` and
+`HexBytes` (convert with `common.Address(a)` / `common.Hash(h)`); every operation takes a `context.Context`; coded errors
 surface as typed values (`WrongWalletAddressError`). The client needs the
 `browser-web3-signer` binary — resolved from `ClientOptions.BinPath`, then
 `BROWSER_WEB3_SIGNER_BIN`, then `PATH` (grab a prebuilt one from the

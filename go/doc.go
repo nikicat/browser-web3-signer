@@ -10,13 +10,13 @@
 // reuse it; the subprocess holds a stable port for its lifetime, so the wallet skips the
 // reconnect prompt across calls.
 //
-// This is a thin client that leans on well-established libraries where they fit rather
-// than avoiding dependencies on principle — notably go-ethereum's `common`/`hexutil`
-// for EVM primitive types, since consumers are almost certainly go-ethereum programs.
+// This is a thin client with no dependencies outside the standard library, so it never
+// pins a caller's version of an Ethereum library. Its EVM types share the underlying types
+// of go-ethereum's (common.Address(a), common.Hash(h)).
 // It mirrors the TypeScript binding in ../ts, with idiomatic Go additions: every
 // operation takes a [context.Context], coded errors surface as typed values matched
 // with [errors.As] (see [WrongWalletAddressError]), and results are domain types
-// ([common.Address], [common.Hash], [hexutil.Bytes], [TronAddress], [TronDeployResult],
+// ([EVMAddress], [TxHash], [HexBytes], [TronAddress], [TronDeployResult],
 // [BtcTxid], [BtcSignedPsbt]) validated as they cross back from the wallet.
 //
 // The `browser-web3-signer` binary must be built (`cargo build`) or on `PATH`; see
