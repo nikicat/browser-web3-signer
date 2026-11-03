@@ -16,8 +16,8 @@ pub use bitcoin::Txid;
 pub use browser_web3_signer_core::{BindPort, BrowserChoice, Engine, Prepared, SignerError, Url};
 pub use config::{block_explorer, default_network, port};
 pub use domain::{
-    BtcAddress, BtcNetwork, MessageProtocol, MessageSignature, PsbtData, SatPerVb, Sats,
-    UncheckedAddress,
+    BtcAddress, BtcNetwork, BtcPublicKey, MessageProtocol, MessageSignature, PsbtData, SatPerVb,
+    Sats, UncheckedAddress,
 };
-pub use signer::{BtcSigner, SignedPsbt, WEB_UI, parse_address, parse_signed_psbt};
+pub use signer::{BtcAccount, BtcSigner, SignedPsbt, WEB_UI, parse_account, parse_signed_psbt};
 pub use types::{BtcRequest, SendTransferParams, SignMessageParams, SignPsbtParams};

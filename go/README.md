@@ -68,7 +68,7 @@ func main() {
 	btc := signer.NewBtcClient(signer.ClientOptions{})
 	defer btc.Shutdown()
 
-	baddr, err := btc.Connect(ctx, signer.BtcConnectParams{Network: "mainnet"})
+	account, err := btc.Connect(ctx, signer.BtcConnectParams{Network: "mainnet"}) // address + public key
 	btxid, err := btc.SendTransfer(ctx, signer.BtcSendTransferParams{To: "bc1…", Amount: 10000, Network: "mainnet"}) // sats
 	signed, err := btc.SignPsbt(ctx, signer.BtcSignPsbtParams{Psbt: psbtBytes, Network: "mainnet"})
 	_ = err
@@ -87,7 +87,7 @@ and validated as they cross back from the wallet.
 
 Bitcoin results are checked by `serve` against the request before they reach Go (the address is on
 the request's network, a signed PSBT is for the same transaction, a broadcast txid matches it), so
-`BtcClient` only decodes them: `Connect` returns the address string, `SendTransfer` a `BtcTxid`,
+`BtcClient` only decodes them: `Connect` returns a `BtcAccount` (address and public key), `SendTransfer` a `BtcTxid`,
 `SignPsbt` a `BtcSignedPsbt` (PSBT bytes, plus the txid when broadcast) and `SignMessage` the
 signature bytes. PSBTs go in and come out as raw bytes, so you can use any PSBT library. See the
 [package docs](.) for the full API.

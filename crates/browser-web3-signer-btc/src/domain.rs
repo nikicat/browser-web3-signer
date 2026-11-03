@@ -11,6 +11,7 @@ use bitcoin::address::NetworkUnchecked;
 use bitcoin::base64::Engine as _;
 use bitcoin::base64::engine::general_purpose::STANDARD as BASE64;
 use bitcoin::hex::FromHex;
+use bitcoin::secp256k1::{PublicKey, XOnlyPublicKey};
 use bitcoin::{Address, Psbt, Txid};
 use serde::{Serialize, Serializer};
 
@@ -139,6 +140,45 @@ impl Serialize for BtcAddress {
     }
 }
 
+/// A wallet account's public key, as the wallet reports it: the untweaked key that signs, so a
+/// Taproot script leaf can name it. Parses from compressed or uncompressed hex; serializes as
+/// compressed hex.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BtcPublicKey(PublicKey);
+
+impl BtcPublicKey {
+    /// The secp256k1 public key.
+    pub const fn as_secp256k1(&self) -> &PublicKey {
+        &self.0
+    }
+
+    /// The x-only (BIP-340) form, as a Taproot leaf script names the key.
+    pub fn x_only(&self) -> XOnlyPublicKey {
+        self.0.x_only_public_key().0
+    }
+}
+
+impl FromStr for BtcPublicKey {
+    type Err = DomainParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<PublicKey>()
+            .map(Self)
+            .map_err(|e| DomainParseError::new("public key", s, e))
+    }
+}
+
+impl fmt::Display for BtcPublicKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl Serialize for BtcPublicKey {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(&self.0)
+    }
+}
+
 /// An amount in satoshis. Serialized as a decimal string to preserve precision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Sats(pub u64);
@@ -216,6 +256,16 @@ impl PsbtData {
     /// The txid of the unsigned transaction. Signing must not change it.
     pub fn unsigned_txid(&self) -> Txid {
         self.0.unsigned_tx.compute_txid()
+    }
+
+    /// Whether input `index` is spent through a Taproot script leaf: it lists a leaf script, so
+    /// its output can't be a wallet's BIP-86 key-path output, and the wallet must sign with its
+    /// untweaked key. False for an index out of range.
+    pub fn spends_script_path(&self, index: u32) -> bool {
+        self.0
+            .inputs
+            .get(index as usize)
+            .is_some_and(|input| !input.tap_scripts.is_empty())
     }
 }
 
@@ -326,6 +376,11 @@ pub(crate) mod tests {
     /// A one-input, one-output PSBT (rust-bitcoin's `psbt` test vectors).
     pub(crate) const PSBT_HEX: &str = "70736274ff01003f0200000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffff010000000000000000036a010000000000000a0f0102030405060708090f0102030405060708090a0b0c0d0e0f0000";
 
+    /// [`PSBT_HEX`] with a second input, and input 0 spending a leaf `<G> OP_CHECKSIG` (G the
+    /// secp256k1 generator); `types::tests` builds it. The e2e mock wallets sign it too
+    /// (tests/e2e-browser/btc/fixtures).
+    pub(crate) const SCRIPT_PATH_PSBT_HEX: &str = "70736274ff0100680200000002ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff0000000000ffffffff010000000000000000036a010000000000002215c179be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798232079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798acc00a0f0102030405060708090f0102030405060708090a0b0c0d0e0f000000";
+
     #[test]
     fn network_round_trips() {
         assert_eq!(
@@ -361,6 +416,22 @@ pub(crate) mod tests {
         );
         assert!(test.require_network(BtcNetwork::Mainnet).is_err());
         assert!("bc1qnotanaddress".parse::<UncheckedAddress>().is_err());
+    }
+
+    #[test]
+    fn public_key_parses_hex_and_serializes_compressed() {
+        // The secp256k1 generator, compressed and uncompressed.
+        const G: &str = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+        const G_UNCOMPRESSED: &str = "0479be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8";
+        let key: BtcPublicKey = G.parse().unwrap();
+        assert_eq!(key.to_string(), G);
+        assert_eq!(G_UNCOMPRESSED.parse::<BtcPublicKey>().unwrap(), key);
+        assert_eq!(key.x_only().to_string(), G[2..]);
+        assert!(
+            G[2..].parse::<BtcPublicKey>().is_err(),
+            "x-only is not a wallet key"
+        );
+        assert!("02ff".parse::<BtcPublicKey>().is_err());
     }
 
     #[test]

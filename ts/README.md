@@ -87,7 +87,7 @@ await signer.shutdown(); // kill the subprocess when done
 import { BtcSignerClient } from "browser-web3-signer";
 
 await using btc = new BtcSignerClient({ defaultNetwork: "mainnet" });
-const address = await btc.connectWallet();
+const { address, publicKey } = await btc.connectWallet(); // publicKey: compressed hex
 const txid = await btc.sendTransfer({ to: "bc1…", amount: 10_000n, feeRate: 2 }); // sats, sat/vB
 const { psbt } = await btc.signPsbt({ psbt: unsignedPsbt.toHex() }); // hex or base64
 const sig = await btc.signMessage({ message: "hello" }); // BIP-322, base64

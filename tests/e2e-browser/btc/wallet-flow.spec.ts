@@ -16,7 +16,9 @@ import {
   type MockUnisatOptions,
   PSBT_HEX,
   PSBT_TXID,
+  SCRIPT_PATH_PSBT_HEX,
   SIGNET_ADDRESS,
+  UNISAT_PUBLIC_KEY,
   unisatCalls,
 } from "./fixtures/mock-wallet.mts";
 
@@ -52,6 +54,11 @@ async function patchWindowClose(page: Page) {
   });
 }
 
+/** A connect result: the account's address with its public key. */
+function account(address: string): string {
+  return JSON.stringify({ address, publicKey: UNISAT_PUBLIC_KEY });
+}
+
 async function methods(page: Page): Promise<string[]> {
   return (await unisatCalls(page)).map((c) => c.method);
 }
@@ -72,7 +79,7 @@ test.describe("Wallet Connection", () => {
     expect(await methods(page)).toEqual(["requestAccounts"]);
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
-    expect(result?.result).toBe(MAINNET_ADDRESS);
+    expect(result?.result).toBe(account(MAINNET_ADDRESS));
   });
 
   test("switches the wallet to the request's chain before reading the address", async ({ browser }) => {
@@ -87,7 +94,7 @@ test.describe("Wallet Connection", () => {
     // The switch must come first: on mainnet the account's address is the bc1… one.
     expect(await methods(page)).toEqual(["switchChain", "requestAccounts"]);
     expect((await unisatCalls(page))[0].args).toEqual(["BITCOIN_SIGNET"]);
-    expect((await getTestResult(id))?.result).toBe(SIGNET_ADDRESS);
+    expect((await getTestResult(id))?.result).toBe(account(SIGNET_ADDRESS));
   });
 
   test("shows error when no Unisat is detected", async ({ browser }) => {
@@ -224,6 +231,33 @@ test.describe("Sign PSBT", () => {
     const result = await getTestResult(id);
     expect(result?.success).toBe(true);
     expect(JSON.parse(result!.result!)).toEqual({ psbt: PSBT_HEX });
+  });
+
+  test("signs a script-path input with the untweaked key", async ({ browser }) => {
+    await using ctx = await walletContext(browser);
+    const page = await ctx.newPage();
+
+    const { id } = await createTestRequest("sign_psbt", {
+      network: "mainnet",
+      psbt: SCRIPT_PATH_PSBT_HEX,
+      signInputs: [0, 1],
+    });
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await expect(page.locator("#tx-inputs")).toHaveText("0 (script path), 1");
+    await page.getByRole("button", { name: "Sign", exact: true }).click();
+    await expect(page.getByText("PSBT Signed!")).toBeVisible({ timeout: 10000 });
+
+    const sign = (await unisatCalls(page)).find((c) => c.method === "signPsbt");
+    expect(sign?.args).toEqual([
+      SCRIPT_PATH_PSBT_HEX,
+      {
+        autoFinalized: false,
+        toSignInputs: [
+          { index: 0, address: MAINNET_ADDRESS, disableTweakSigner: true },
+          { index: 1, address: MAINNET_ADDRESS },
+        ],
+      },
+    ]);
   });
 
   test("broadcasts with pushPsbt and returns the txid", async ({ browser }) => {

@@ -210,9 +210,10 @@ func TestBtcClient(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("Connect", func(t *testing.T) {
-		addr, err := client.Connect(ctx, BtcConnectParams{Network: network})
+		account, err := client.Connect(ctx, BtcConnectParams{Network: network})
 		require.NoError(t, err)
-		assert.Equal(t, address, addr)
+		assert.Equal(t, address, account.Address)
+		assert.Equal(t, "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", hex.EncodeToString(account.PublicKey))
 	})
 
 	t.Run("SendTransfer", func(t *testing.T) {

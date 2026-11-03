@@ -46,6 +46,9 @@
  *   renderTxSuccessExtra?(request, { txHash, deployedAddress }): void  // optional extra success rows
  *
  *   onConnected?(request): Promise<void>   // optional post-match hook (e.g. EVM chain switch)
+ *   connectResult?(address): Promise<string>  // optional: what a connect request delivers for
+ *                                          // address (BTC: JSON with its public key); default
+ *                                          // the address itself
  *   sendTx(request, from): Promise<{ settled: string, txHash: string, contractAddress?: string }>
  *   signMessage(request, address): Promise<string>
  *   signTypedData(request, address): Promise<string>
@@ -419,8 +422,9 @@
       await adapter.onConnected(request);
     }
     cleanupAccountsListener();
+    var result = adapter.connectResult ? await adapter.connectResult(address) : address;
     // Settle, then deliver — so a delivery failure here retries the POST, not the connect.
-    settledResult = address;
+    settledResult = result;
     await deliverSettled();
   }
 

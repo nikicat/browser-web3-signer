@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use browser_web3_signer_btc::{
     BindPort, BtcNetwork, BtcRequest, BtcSigner, MessageProtocol, MessageSignature, PsbtData,
     SatPerVb, Sats, SendTransferParams, SignMessageParams, SignPsbtParams, Txid, UncheckedAddress,
-    Url, block_explorer, config, parse_address, parse_signed_psbt,
+    Url, block_explorer, config, parse_account, parse_signed_psbt,
 };
 use clap::{ArgGroup, Subcommand};
 use serde_json::json;
@@ -16,7 +16,7 @@ use crate::{CliContext, OutputFormat, flow, output};
 /// Bitcoin subcommands.
 #[derive(Debug, Subcommand)]
 pub(crate) enum BtcCommand {
-    /// Connect the wallet and print its address.
+    /// Connect the wallet and print its address and public key.
     Connect {
         /// Network (mainnet|testnet|testnet4|signet|regtest; defaults to env / mainnet).
         #[arg(long)]
@@ -52,7 +52,8 @@ pub(crate) enum BtcCommand {
         /// Read the PSBT (hex or base64) from a file.
         #[arg(long = "psbt-file")]
         psbt_file: Option<PathBuf>,
-        /// Input index to sign (repeatable). Default: every input the wallet's account owns.
+        /// Input index to sign (repeatable). Default: every input the wallet's account owns. A
+        /// Taproot input that lists a leaf script is signed through the leaf, only when listed.
         #[arg(long = "sign-input")]
         sign_inputs: Vec<u32>,
         /// Finalize the signed inputs.
@@ -120,10 +121,16 @@ impl BtcCli {
     ) -> Result<()> {
         let network = self.network_or_default(network);
         let raw = self.approve(BtcRequest::connect(network, address)?).await?;
-        let addr = parse_address(&raw, network)?;
+        let account = parse_account(&raw, network)?;
         match self.ctx.output {
-            OutputFormat::Text => println!("Connected: {addr}"),
-            OutputFormat::Json => output::json(&json!({ "address": addr.to_string() })),
+            OutputFormat::Text => {
+                println!("Connected: {}", account.address);
+                println!("Public key: {}", account.public_key);
+            }
+            OutputFormat::Json => output::json(&json!({
+                "address": account.address.to_string(),
+                "publicKey": account.public_key.to_string(),
+            })),
         }
         Ok(())
     }

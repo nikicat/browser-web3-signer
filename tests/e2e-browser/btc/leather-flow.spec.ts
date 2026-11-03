@@ -11,7 +11,9 @@ import {
   FAKE_SIGNATURE,
   FAKE_TXID,
   LEATHER_SEGWIT_ADDRESS,
+  LEATHER_SEGWIT_PUBLIC_KEY,
   LEATHER_TAPROOT_ADDRESS,
+  LEATHER_TAPROOT_PUBLIC_KEY,
   leatherCalls,
   type MockLeatherOptions,
   PSBT_HEX,
@@ -48,7 +50,10 @@ test("connects and returns the payment (native segwit) address", async ({ browse
   await expect(page.getByText("Connected!")).toBeVisible({ timeout: 10000 });
 
   expect((await call(page, "getAddresses"))?.params).toEqual({ network: "regtest" });
-  expect((await getTestResult(id))?.result).toBe(LEATHER_SEGWIT_ADDRESS);
+  expect(JSON.parse((await getTestResult(id))!.result!)).toEqual({
+    address: LEATHER_SEGWIT_ADDRESS,
+    publicKey: LEATHER_SEGWIT_PUBLIC_KEY,
+  });
 });
 
 test("connects to the Taproot address when that's the one required", async ({ browser }) => {
@@ -59,7 +64,10 @@ test("connects to the Taproot address when that's the one required", async ({ br
   await page.goto(`${getBaseUrl()}/connect/${id}`);
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByText("Connected!")).toBeVisible({ timeout: 10000 });
-  expect((await getTestResult(id))?.result).toBe(LEATHER_TAPROOT_ADDRESS);
+  expect(JSON.parse((await getTestResult(id))!.result!)).toEqual({
+    address: LEATHER_TAPROOT_ADDRESS,
+    publicKey: LEATHER_TAPROOT_PUBLIC_KEY,
+  });
 });
 
 test("sends with sendTransfer, naming the network", async ({ browser }) => {

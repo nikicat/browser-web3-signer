@@ -47,11 +47,38 @@ type BtcSendTransferParams struct {
 	Network string `json:"network,omitempty"`
 }
 
+// BtcAccount is the result of [BtcClient.Connect]: the connected wallet account.
+type BtcAccount struct {
+	// Address is the account's address, on the request's network.
+	Address string
+	// PublicKey is the 33-byte compressed key that signs for the account. A caller names its
+	// x-only form (PublicKey[1:]) in a Taproot script leaf for the wallet to sign through it.
+	PublicKey []byte
+}
+
+// parseBtcAccount parses a `connect` result (JSON `{address, publicKey}`, the key in hex).
+func parseBtcAccount(raw string) (BtcAccount, error) {
+	var wire struct {
+		Address   string `json:"address"`
+		PublicKey string `json:"publicKey"`
+	}
+	if err := json.Unmarshal([]byte(raw), &wire); err != nil {
+		return BtcAccount{}, fmt.Errorf("malformed connect result %q: %w", raw, err)
+	}
+	key, err := hex.DecodeString(wire.PublicKey)
+	if err != nil || len(key) != 33 {
+		return BtcAccount{}, fmt.Errorf("invalid public key %q: expected 33 bytes in hex", wire.PublicKey)
+	}
+	return BtcAccount{Address: wire.Address, PublicKey: key}, nil
+}
+
 // BtcSignPsbtParams are the parameters for [BtcClient.SignPsbt].
 type BtcSignPsbtParams struct {
 	// Psbt is the serialized PSBT (sent base64).
 	Psbt []byte `json:"psbt"`
-	// SignInputs are the input indexes to sign (empty: every input the wallet owns).
+	// SignInputs are the input indexes to sign (empty: every input the wallet owns). An input
+	// that lists a Taproot leaf script is signed through the leaf, with the account's
+	// untweaked key, and only when listed here.
 	SignInputs []uint32 `json:"signInputs,omitempty"`
 	// Finalize the signed inputs. Leather finalizes only when broadcasting.
 	Finalize bool `json:"finalize,omitempty"`
@@ -137,13 +164,17 @@ func parseBase64Signature(s string) ([]byte, error) {
 	return b, nil
 }
 
-// Connect connects the wallet and returns its address (checked by `serve` to be on the
-// request's network).
-func (c *BtcClient) Connect(ctx context.Context, params BtcConnectParams) (string, error) {
-	return c.request(ctx, struct {
+// Connect connects the wallet and returns its account (the address checked by `serve` to be
+// on the request's network).
+func (c *BtcClient) Connect(ctx context.Context, params BtcConnectParams) (BtcAccount, error) {
+	raw, err := c.request(ctx, struct {
 		Type string `json:"type"`
 		BtcConnectParams
 	}{Type: "connect", BtcConnectParams: params})
+	if err != nil {
+		return BtcAccount{}, err
+	}
+	return parseResult(raw, parseBtcAccount)
 }
 
 // SendTransfer pays one address and returns the broadcast txid.

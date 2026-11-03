@@ -195,11 +195,26 @@ export interface BtcSendTransferParams {
   network?: BtcNetwork;
 }
 
+/** Result of {@link BtcSignerClient.connectWallet}: the connected wallet account. */
+export interface BtcAccount {
+  /** The account's address, on the request's network. */
+  address: string;
+  /**
+   * The compressed key that signs for the account, in hex. A caller names its x-only form (the
+   * last 32 bytes) in a Taproot script leaf for the wallet to sign through it.
+   */
+  publicKey: string;
+}
+
 /** Parameters for {@link BtcSignerClient.signPsbt}. */
 export interface BtcSignPsbtParams {
   /** The PSBT, hex or base64 (e.g. bitcoinjs-lib's `psbt.toHex()`). */
   psbt: string;
-  /** Input indexes to sign; omitted means every input the wallet owns. */
+  /**
+   * Input indexes to sign; omitted means every input the wallet owns. An input that lists a
+   * Taproot leaf script is signed through the leaf, with the account's untweaked key, and only
+   * when listed here.
+   */
   signInputs?: number[];
   /** Finalize the signed inputs. Leather finalizes only when broadcasting. */
   finalize?: boolean;
@@ -262,9 +277,10 @@ export class BtcSignerClient implements AsyncDisposable {
     return controlRequest(this.#serve, { type, ...params, network });
   }
 
-  /** Connect the wallet, returning its address. */
-  async connectWallet(options?: { network?: BtcNetwork; address?: string }): Promise<string> {
-    return this.#request("connect", { ...options });
+  /** Connect the wallet, returning its account. */
+  async connectWallet(options?: { network?: BtcNetwork; address?: string }): Promise<BtcAccount> {
+    const { address, publicKey } = JSON.parse(await this.#request("connect", { ...options })) as BtcAccount;
+    return { address, publicKey };
   }
 
   /** Pay one address (the wallet selects coins, signs and broadcasts), returning the txid. */

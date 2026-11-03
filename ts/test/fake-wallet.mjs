@@ -18,6 +18,8 @@ const FAKE_SIGNATURE = "0x" + "cd".repeat(65);
 const FAKE_RAW_SIGNATURE = "0x" + "ee".repeat(65);
 // Bitcoin: `serve` checks these against the request, so they must be well-formed regtest values.
 const FAKE_BTC_ADDRESS = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
+// The secp256k1 generator, compressed: any well-formed key will do.
+const FAKE_BTC_PUBLIC_KEY = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 const FAKE_BTC_TXID = "ab".repeat(32);
 const FAKE_BTC_SIGNATURE = Buffer.alloc(65, 0xcd).toString("base64");
 // The txid of the PSBT the binding tests sign (rust-bitcoin's BIP-174 vector); a
@@ -39,7 +41,7 @@ const base = `${parsed.protocol}//${parsed.host}`;
 function btcResultFor(request) {
   switch (request.type) {
     case "connect":
-      return FAKE_BTC_ADDRESS;
+      return JSON.stringify({ address: FAKE_BTC_ADDRESS, publicKey: FAKE_BTC_PUBLIC_KEY });
     case "send_transfer":
       return FAKE_BTC_TXID;
     case "sign_psbt":

@@ -59,6 +59,10 @@ pub enum BtcRequest {
         /// Input indexes to sign; absent means every input the wallet's account owns.
         #[serde(rename = "signInputs", skip_serializing_if = "Option::is_none")]
         sign_inputs: Option<Vec<u32>>,
+        /// The `sign_inputs` spent through a Taproot script leaf, which the wallet signs with its
+        /// untweaked key ([`PsbtData::spends_script_path`]).
+        #[serde(rename = "scriptPathInputs", skip_serializing_if = "Vec::is_empty")]
+        script_path_inputs: Vec<u32>,
         /// Finalize the signed inputs. Always true when `broadcast` is.
         finalize: bool,
         /// Broadcast through the wallet after signing.
@@ -103,7 +107,8 @@ pub struct SignPsbtParams {
     pub psbt: PsbtData,
     /// Expected signer.
     pub from: Option<UncheckedAddress>,
-    /// Input indexes to sign; `None` signs every input the account owns.
+    /// Input indexes to sign; `None` signs every input the account owns. A script-path input is
+    /// signed only when listed.
     pub sign_inputs: Option<Vec<u32>>,
     /// Finalize the signed inputs.
     pub finalize: bool,
@@ -183,12 +188,20 @@ impl BtcRequest {
                 format!("the PSBT has {inputs} inputs"),
             ));
         }
+        let script_path_inputs = params
+            .sign_inputs
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|&i| params.psbt.spends_script_path(i))
+            .collect();
         Ok(Self::SignPsbt {
             meta: RequestMeta::new(),
             network,
             psbt: params.psbt,
             from: checked(params.from, network)?,
             sign_inputs: params.sign_inputs,
+            script_path_inputs,
             finalize: params.finalize || params.broadcast,
             broadcast: params.broadcast,
         })
@@ -220,11 +233,11 @@ impl Request for BtcRequest {
     }
 
     /// The checks [`BtcSigner`](crate::BtcSigner) applies to its results, for the `serve` control
-    /// API: the address is on the request's network, a txid or signature parses, and a signed
-    /// PSBT is for the requested transaction.
+    /// API: the connected address is on the request's network, a public key, txid or signature
+    /// parses, and a signed PSBT is for the requested transaction.
     fn check_result(&self, result: &str) -> Result<(), String> {
         let checked = match self {
-            Self::Connect { network, .. } => signer::parse_address(result, *network).map(drop),
+            Self::Connect { network, .. } => signer::parse_account(result, *network).map(drop),
             Self::SendTransfer { .. } => signer::parse_signed::<Txid>(result, "txid").map(drop),
             Self::SignPsbt { psbt, .. } => signer::parse_signed_psbt(psbt, result).map(drop),
             Self::SignMessage { .. } => {
@@ -295,10 +308,12 @@ fn sign_inputs_field(body: &serde_json::Value) -> Result<Option<Vec<u32>>, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::tests::PSBT_HEX;
+    use crate::domain::tests::{PSBT_HEX, SCRIPT_PATH_PSBT_HEX};
 
     const MAIN: &str = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
     const TEST: &str = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+    /// The secp256k1 generator, compressed.
+    const KEY: &str = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
     #[test]
     fn send_transfer_emits_wire_shape() {
@@ -324,8 +339,11 @@ mod tests {
         let connect =
             BtcRequest::from_json(&serde_json::json!({ "type": "connect", "network": "signet" }))
                 .unwrap();
-        assert!(connect.check_result(TEST).is_ok());
-        assert!(connect.check_result(MAIN).is_err());
+        let account =
+            |address: &str| serde_json::json!({ "address": address, "publicKey": KEY }).to_string();
+        assert!(connect.check_result(&account(TEST)).is_ok());
+        assert!(connect.check_result(&account(MAIN)).is_err());
+        assert!(connect.check_result(TEST).is_err(), "bare address");
 
         let sign = BtcRequest::from_json(&serde_json::json!({
             "type": "sign_psbt", "network": "mainnet", "psbt": PSBT_HEX,
@@ -378,6 +396,59 @@ mod tests {
             "type": "sign_psbt", "network": "mainnet", "psbt": psbt.to_string(), "signInputs": [1],
         });
         assert!(BtcRequest::from_json(&out_of_range).is_err());
+    }
+
+    #[test]
+    fn sign_psbt_names_the_listed_script_path_inputs() {
+        use bitcoin::opcodes::all::OP_CHECKSIG;
+        use bitcoin::psbt::Input;
+        use bitcoin::taproot::{ControlBlock, LeafVersion, TaprootBuilder};
+        use bitcoin::{ScriptBuf, secp256k1};
+
+        use crate::domain::BtcPublicKey;
+
+        // Input 0 of a two-input PSBT spends a leaf naming KEY; input 1 doesn't.
+        let mut psbt = PSBT_HEX.parse::<PsbtData>().unwrap().as_psbt().clone();
+        psbt.unsigned_tx
+            .input
+            .push(psbt.unsigned_tx.input[0].clone());
+        psbt.inputs.push(Input::default());
+        let secp = secp256k1::Secp256k1::verification_only();
+        let key: BtcPublicKey = KEY.parse().unwrap();
+        let leaf = ScriptBuf::builder()
+            .push_x_only_key(&key.x_only())
+            .push_opcode(OP_CHECKSIG)
+            .into_script();
+        let tree = TaprootBuilder::new()
+            .add_leaf(0, leaf.clone())
+            .unwrap()
+            .finalize(&secp, key.x_only())
+            .unwrap();
+        let control: ControlBlock = tree
+            .control_block(&(leaf.clone(), LeafVersion::TapScript))
+            .unwrap();
+        psbt.inputs[0]
+            .tap_scripts
+            .insert(control, (leaf, LeafVersion::TapScript));
+        let hex = psbt.serialize_hex();
+        assert_eq!(hex, SCRIPT_PATH_PSBT_HEX);
+
+        let request = |sign_inputs: serde_json::Value| {
+            let req = BtcRequest::from_json(&serde_json::json!({
+                "type": "sign_psbt", "network": "mainnet", "psbt": hex, "signInputs": sign_inputs,
+            }))
+            .unwrap();
+            serde_json::to_value(&req).unwrap()
+        };
+        assert_eq!(
+            request(serde_json::json!([0, 1]))["scriptPathInputs"],
+            serde_json::json!([0])
+        );
+        assert!(
+            request(serde_json::json!([1]))
+                .get("scriptPathInputs")
+                .is_none()
+        );
     }
 
     #[test]
