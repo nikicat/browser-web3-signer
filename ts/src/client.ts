@@ -71,7 +71,9 @@ export interface WalletSignerClientOptions extends ServeProcessOptions {
 
 /** Parameters for {@link WalletSignerClient.sendTransaction}. */
 export interface SendTransactionParams {
-  to: string;
+  /** The recipient or contract; without it, the tx deploys `data` as a new contract,
+   * and the signer refuses one without `data`. */
+  to?: string;
   from?: string;
   value?: string;
   data?: string;

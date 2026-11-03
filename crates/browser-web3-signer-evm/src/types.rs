@@ -108,8 +108,9 @@ pub enum EvmRequest {
         /// Chain id.
         #[serde(rename = "chainId", skip_serializing_if = "Option::is_none")]
         chain_id: Option<ChainId>,
-        /// Recipient / contract address.
-        to: Address,
+        /// Recipient / contract address, or none to deploy `data` as a new contract.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        to: Option<Address>,
         /// Expected `from`; the UI refuses to sign unless the connected wallet matches.
         #[serde(skip_serializing_if = "Option::is_none")]
         from: Option<Address>,
@@ -200,16 +201,20 @@ impl Request for EvmRequest {
                 rpc_url: opt_parsed(body, "rpcUrl")?,
                 chain_name: str_opt(body, "chainName"),
             })),
-            "send_transaction" => Ok(Self::send_transaction(SendTransactionParams {
-                to: req_parsed(body, "to")?,
-                from: opt_parsed(body, "from")?,
-                value: opt_parsed(body, "value")?,
-                data: opt_parsed(body, "data")?,
-                chain_id,
-                gas_limit: opt_parsed(body, "gasLimit")?,
-                max_fee_per_gas: opt_parsed(body, "maxFeePerGas")?,
-                max_priority_fee_per_gas: opt_parsed(body, "maxPriorityFeePerGas")?,
-            })),
+            "send_transaction" => {
+                let params = SendTransactionParams {
+                    to: opt_parsed(body, "to")?,
+                    from: opt_parsed(body, "from")?,
+                    value: opt_parsed(body, "value")?,
+                    data: opt_parsed(body, "data")?,
+                    chain_id,
+                    gas_limit: opt_parsed(body, "gasLimit")?,
+                    max_fee_per_gas: opt_parsed(body, "maxFeePerGas")?,
+                    max_priority_fee_per_gas: opt_parsed(body, "maxPriorityFeePerGas")?,
+                };
+                params.check()?;
+                Ok(Self::send_transaction(params))
+            }
             "sign_message" => Ok(Self::sign_message(
                 SignableMessage::from_json(body)?,
                 opt_parsed(body, "address")?,
@@ -246,8 +251,9 @@ pub struct ConnectParams {
 /// Parameters for building a `send_transaction` request (typed; built by the caller/CLI).
 #[derive(Debug, Clone)]
 pub struct SendTransactionParams {
-    /// Recipient / contract address (required).
-    pub to: Address,
+    /// Recipient / contract address, or none to deploy `data` as a new contract, as
+    /// a transaction without a recipient does.
+    pub to: Option<Address>,
     /// Expected `from` address.
     pub from: Option<Address>,
     /// Value in wei.
@@ -262,6 +268,24 @@ pub struct SendTransactionParams {
     pub max_fee_per_gas: Option<Wei>,
     /// EIP-1559 max priority fee per gas.
     pub max_priority_fee_per_gas: Option<Wei>,
+}
+
+impl SendTransactionParams {
+    /// Checks that the transaction is one a wallet can send. Errors for a contract
+    /// creation (no `to`) without the contract's init code in `data`.
+    pub fn check(&self) -> Result<(), String> {
+        match (&self.to, &self.data) {
+            (None, None) => Err(
+                "a transaction without 'to' deploys a contract from 'data', which it lacks"
+                    .to_owned(),
+            ),
+            (None, Some(data)) if data.0.is_empty() => Err(
+                "a transaction without 'to' deploys a contract from 'data', which is empty"
+                    .to_owned(),
+            ),
+            _ => Ok(()),
+        }
+    }
 }
 
 impl EvmRequest {
@@ -362,9 +386,11 @@ mod tests {
     #[test]
     fn send_transaction_emits_wire_field_names() {
         let req = EvmRequest::send_transaction(SendTransactionParams {
-            to: "0x52908400098527886E0F7030069857D2E4169EE7"
-                .parse()
-                .unwrap(),
+            to: Some(
+                "0x52908400098527886E0F7030069857D2E4169EE7"
+                    .parse()
+                    .unwrap(),
+            ),
             from: None,
             value: Some("1000".parse().unwrap()),
             data: Some("0xdead".parse().unwrap()),
@@ -382,6 +408,40 @@ mod tests {
         assert_eq!(json["maxFeePerGas"], "5");
         assert!(json.get("maxPriorityFeePerGas").is_none());
         assert!(json.get("from").is_none());
+    }
+
+    #[test]
+    fn a_contract_creation_omits_to_and_round_trips() {
+        let original = EvmRequest::send_transaction(SendTransactionParams {
+            to: None,
+            from: None,
+            value: None,
+            data: Some("0x6080".parse().unwrap()),
+            chain_id: Some(ChainId(42161)),
+            gas_limit: None,
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+        });
+        let wire = serde_json::to_value(&original).unwrap();
+        assert!(wire.get("to").is_none());
+        assert_eq!(wire["data"], "0x6080");
+        let EvmRequest::SendTransaction { to, data, .. } = EvmRequest::from_json(&wire).unwrap()
+        else {
+            panic!("expected send_transaction");
+        };
+        assert!(to.is_none());
+        assert_eq!(data.unwrap().0.as_ref(), [0x60, 0x80]);
+    }
+
+    #[test]
+    fn a_contract_creation_without_init_code_is_refused() {
+        for body in [
+            serde_json::json!({ "type": "send_transaction" }),
+            serde_json::json!({ "type": "send_transaction", "data": "0x" }),
+        ] {
+            let err = EvmRequest::from_json(&body).unwrap_err();
+            assert!(err.contains("deploys a contract from 'data'"), "{err}");
+        }
     }
 
     #[test]
@@ -441,9 +501,11 @@ mod tests {
         // A request built via the typed API serializes to the wire shape; parsing that wire
         // shape back via `from_json` reproduces the same request (modulo the fresh id).
         let original = EvmRequest::send_transaction(SendTransactionParams {
-            to: "0x52908400098527886E0F7030069857D2E4169EE7"
-                .parse()
-                .unwrap(),
+            to: Some(
+                "0x52908400098527886E0F7030069857D2E4169EE7"
+                    .parse()
+                    .unwrap(),
+            ),
             from: None,
             value: Some("1000".parse().unwrap()),
             data: Some("0xdead".parse().unwrap()),

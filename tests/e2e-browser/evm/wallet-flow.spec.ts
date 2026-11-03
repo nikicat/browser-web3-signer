@@ -361,6 +361,27 @@ test.describe("Transaction Signing", () => {
     expect(result?.result).toMatch(/^0x[a-f0-9]+$/i);
   });
 
+  test("deploys a contract: a tx without a recipient, which the wallet sends without `to`", async ({ browser }) => {
+    await using ctx = await walletContext(browser);
+    const page = await ctx.newPage();
+
+    const { id } = await createTestRequest("send_transaction", { data: "0x6080604052", chainId: TEST_CHAIN_ID });
+
+    await page.goto(`${getBaseUrl()}/sign/${id}`);
+    await expect(page.getByRole("heading", { name: "Deploy Contract" })).toBeVisible();
+    await expect(page.getByText("a new contract", { exact: false })).toBeVisible();
+    await expect(page.getByText("(5 bytes)", { exact: false })).toBeVisible();
+
+    await page.getByRole("button", { name: "Sign & Send" }).click();
+    await expect(page.getByText("Transaction Sent!")).toBeVisible({ timeout: 10000 });
+
+    const result = await getTestResult(id);
+    expect(result?.success).toBe(true);
+    const [sent] = await page.evaluate(() => (window as any).ethereum._sentTxs);
+    expect(sent).not.toHaveProperty("to");
+    expect(sent.data).toBe("0x6080604052");
+  });
+
   test("rejects transaction", async ({ browser }) => {
     await using ctx = await walletContext(browser);
     const page = await ctx.newPage();

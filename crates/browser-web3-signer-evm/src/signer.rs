@@ -82,8 +82,10 @@ impl EvmSigner {
         parse_signed(&self.submit(req).await?, "address")
     }
 
-    /// Send a transaction, returning its hash.
+    /// Send a transaction, returning its hash. Without `to`, the transaction deploys
+    /// `data` as a new contract. Errors as SendTransactionParams::check does.
     pub async fn send_transaction(&self, mut params: SendTransactionParams) -> Result<TxHash> {
+        params.check().map_err(SignerError::Invalid)?;
         params.chain_id = Some(self.chain_or_default(params.chain_id));
         let req = EvmRequest::send_transaction(params);
         parse_signed(&self.submit(req).await?, "tx hash")

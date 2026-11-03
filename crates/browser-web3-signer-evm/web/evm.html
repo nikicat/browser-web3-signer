@@ -680,17 +680,19 @@
             return request.chainId ? "Chain ID: " + request.chainId : null;
           },
           confirmLabel: "Confirm in Wallet...",
-          txHeading: function () {
-            return "Send Transaction";
+          txHeading: function (request) {
+            // a transaction without a recipient deploys its data as a new contract
+            return request && !request.to ? "Deploy Contract" : "Send Transaction";
           },
           txButtonLabel: function () {
             return "Sign & Send";
           },
           renderTxDetails: function (request) {
-            $("tx-to").textContent = request.to;
+            $("tx-to").textContent = request.to || "a new contract, from the data below";
             $("tx-value").textContent = formatEther(request.value || "0") + " ETH";
             if (request.data && request.data !== "0x") {
-              $("tx-data").textContent = request.data.length > 66 ? request.data.slice(0, 66) + "..." : request.data;
+              var bytes = (request.data.length - 2) / 2;
+              $("tx-data").textContent = (request.data.length > 66 ? request.data.slice(0, 66) + "..." : request.data) + " (" + bytes + " bytes)";
               show($("tx-data-row"));
             } else hide($("tx-data-row"));
             if (request.chainId) {
@@ -708,7 +710,8 @@
           },
           sendTx: async function (request, from) {
             await ensureChain(request);
-            var tx = { from: from, to: request.to };
+            var tx = { from: from };
+            if (request.to) tx.to = request.to;
             if (request.value) tx.value = toQuantity(request.value);
             if (request.data) tx.data = request.data;
             if (request.gasLimit) tx.gas = toQuantity(request.gasLimit);
