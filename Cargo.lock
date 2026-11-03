@@ -946,7 +946,7 @@ dependencies = [
 
 [[package]]
 name = "browser-web3-signer"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -965,7 +965,7 @@ dependencies = [
 
 [[package]]
 name = "browser-web3-signer-btc"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "bitcoin",
  "browser-web3-signer-core",
@@ -976,7 +976,7 @@ dependencies = [
 
 [[package]]
 name = "browser-web3-signer-core"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "axum",
  "git-version",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "browser-web3-signer-evm"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "alloy",
  "browser-web3-signer-core",
@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "browser-web3-signer-tron"
-version = "0.10.1"
+version = "0.11.0"
 dependencies = [
  "alloy-primitives",
  "browser-web3-signer-core",

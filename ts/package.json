@@ -1,6 +1,6 @@
 {
   "name": "browser-web3-signer",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "type": "module",
   "description": "Sign EVM, TRON and Bitcoin transactions and messages from TypeScript using your own browser wallet (MetaMask, Rabby, TronLink, Unisat, Leather) — the private key never leaves the browser. Viem transport + account included.",
   "keywords": [
