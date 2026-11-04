@@ -9,5 +9,5 @@ Go users currently build from source, set `BROWSER_WEB3_SIGNER_BIN`, or download
 binary. Blocked on demand: build when warranted.
 
 ## Decisions
-- Runtime download verified against a committed per-release SHA-256 table (hc-install-grade),
-  not committed artifacts: a Go module is served verbatim from the git tree.
+- The options and the recommendation are in ADR 0010
+  (`docs/adr/0010-go-binary-auto-install.md`, proposed).

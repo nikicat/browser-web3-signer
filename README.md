@@ -70,7 +70,7 @@ How it compares:
 
 **Supported wallets**: any injected EVM wallet (EIP-6963 / `window.ethereum`) — developed
 against MetaMask and Rabby — and TronLink for TRON. Per-wallet account-switching behavior
-is source-verified and catalogued in [docs/wallet-account-change.md](docs/wallet-account-change.md).
+is source-verified and catalogued in [ADR 0005](docs/adr/0005-evm-account-change.md).
 
 ## Interfaces
 
@@ -345,7 +345,7 @@ startup. Unset or empty means any account.
   caller. The one-shot CLI tears the bridge down when the command exits, and the `serve`
   process is a child owned and supervised by the binding that spawned it. A long-lived
   multi-client daemon (discovery file, bearer-token auth, request queue) is deliberately
-  deferred — see the [roadmap](ARCHITECTURE.md#roadmap).
+  deferred — see [ADR 0002](docs/adr/0002-no-daemon-managed-serve-subprocess.md).
 - **What it can't protect**: a compromised browser or wallet extension, or approving a
   transaction you didn't read. Check what the wallet shows before you click.
 
@@ -388,7 +388,7 @@ the real Leather extension on a throwaway regtest chain.
 
 Deferred: a full multi-client daemon (discovery file, auth, request queue, SSE), warranted only if
 several independent processes must share one connected tab. See
-[ARCHITECTURE.md](ARCHITECTURE.md#roadmap).
+[ADR 0002](docs/adr/0002-no-daemon-managed-serve-subprocess.md).
 
 ## Related projects
 

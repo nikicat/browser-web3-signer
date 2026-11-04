@@ -12,7 +12,7 @@ project), with two changes of intent:
   reads stdout.
 - **The core is a reusable library**, so the capability can be embedded from other
   languages (via bindings that manage a Rust bridge subprocess) and wrapped by TypeScript
-  adaptors. See [Roadmap](#roadmap) for why this, and not a daemon, is the planned path.
+  adaptors. [ADR 0002](docs/adr/0002-no-daemon-managed-serve-subprocess.md) records why this, and not a daemon.
 
 The defining property is preserved: **the private key never leaves the user's browser
 wallet.** This process only ferries a request to a local page and reads the signed result
@@ -57,7 +57,7 @@ TS adaptors interoperate.
 `build_router_with` / `Engine::start_with` add an **extension point**: a caller can merge its
 own routes onto the core bridge, sharing the same `PendingStore`. Two callers use it today: the
 `serve` control API mounts `/api/v1/*` (the long-lived mode language bindings drive — see
-[Roadmap](#roadmap)), and the e2e test harness mounts `/api/test/*`, both rather than forking the
+[ADR 0002](docs/adr/0002-no-daemon-managed-serve-subprocess.md)), and the e2e test harness mounts `/api/test/*`, both rather than forking the
 router. The merged routes carry their own state and middleware; the core CORS layer applies only
 to the core routes.
 
@@ -104,18 +104,9 @@ parses it into the right type immediately.
 
 ### `Port` / `BindPort`, and the preferred-port-with-fallback model
 
-A port is a `Port` (non-zero `NonZeroU16`); "use an ephemeral port" is a distinct
-`BindPort::Ephemeral` rather than the magic value `0`. The configured port is *preferred*,
-not mandatory:
-
-- **One-shot commands** try the preferred port so the browser origin (`127.0.0.1:3847`)
-  stays stable across invocations — that's what lets a wallet skip the reconnect prompt. If
-  it's already in use, they fall back to an OS-assigned ephemeral port instead of failing,
-  so concurrent commands never collide.
-- **A long-lived signer** (a reused `EvmSigner`/`TronSigner`, or one held by a binding's managed
-  bridge subprocess) keeps the preferred port for its whole lifetime, so the persistent tab's
-  origin never changes — the same mechanism, just longer-lived. Only a future multi-client
-  daemon (see [Roadmap](#roadmap)) would need a request queue to share one port across processes.
+A port is a `Port` (`NonZeroU16`), and "use an ephemeral port" is `BindPort::Ephemeral`, not the
+magic value `0`. The configured port is preferred, not mandatory: when it is taken, the bridge
+falls back to an ephemeral port ([ADR 0007](docs/adr/0007-preferred-port-with-fallback.md)).
 
 ### `Shared<T>` instead of scattered `Arc::clone`
 
@@ -135,14 +126,8 @@ field readers every chain's `from_json` uses live in core's `parse` module.
 
 ### No read side: reads belong to the caller
 
-This tool is purely a browser-signing bridge. Plain JSON-RPC reads (native/token balances,
-etc.) need no wallet, browser, or key — they're trivially done with `cast` or any EVM/TRON
-SDK — so they live with the caller, not here. Dropping them keeps the dependency footprint
-small: the EVM crate uses `alloy` only for its primitive domain types (`Address`, `Wei`/`U256`,
-`Bytes`), not for a provider/RPC stack, and the TRON crate uses just `alloy-primitives` plus the
-maintained `bs58` crate (with checksum) for the Base58Check address codec — no HTTP client. EVM
-`Address` and `TronAddress` are validated on construction (the latter stored as its canonical
-21 bytes: `0x41` prefix + 20-byte body).
+The tool only signs. Balance and other RPC reads belong to the caller
+([ADR 0008](docs/adr/0008-no-read-side.md)), which keeps the chain crates free of an RPC stack.
 
 ### CLI: one-shot, runner structs, clean output streams
 
@@ -164,40 +149,17 @@ in the wallet's page context.
 
 ### Shared core + thin chain adapters
 
-The logic the two pages used to duplicate — the bridge protocol (`fetchPendingRequest` /
-`completeSuccess` / `completeError`), the app state machine + view switching, `rejectWith` /
-address-matching, the settled-result delivery, and the **error contract** (show in-page + retry,
-propagate only on explicit Reject/Cancel) — lives once in
-[`app-core.js`](crates/browser-web3-signer-core/web/app-core.js), owned by the core crate.
-The core crate embeds it with `include_str!` and serves it at `GET /app-core.js` from
-`build_router` (so every bridge — CLI, `serve`, and the e2e harnesses — exposes it). Both pages
-load it via `<script src="/app-core.js">` and call `WalletSignerCore.init(adapter)`. Their styles
-are shared the same way: [`app-core.css`](crates/browser-web3-signer-core/web/app-core.css), served
-at `GET /app-core.css`, with each page setting only its brand colour as CSS variables.
+The bridge protocol, the app state machine and the error contract (show in-page and retry;
+propagate only an explicit Reject or Cancel) live once in
+[`app-core.js`](crates/browser-web3-signer-core/web/app-core.js), served at `GET /app-core.js`
+with its styles at `GET /app-core.css`. Each page is its markup, its brand colour and a thin chain
+adapter passed to `WalletSignerCore.init(adapter)`
+([ADR 0006](docs/adr/0006-shared-app-core-js.md)).
 
-Each page is now only its markup + brand colour plus a thin chain **adapter**: the wallet operations
-(`connect` via `requestAccounts`/`onConnected`, `sendTx`, `signMessage`, `signTypedData`),
-wallet presence/identity, `addressMatch` (case-insensitive for EVM 0x-hex, case-sensitive for
-TRON Base58), and the chain-specific slices of presentation (badge text, `renderTxDetails`,
-button labels). When the requested signer differs from the wallet's selected account, the core
-submits the operation for the requested account anyway: wallets with a native switch flow
-(Ambire's "Switch Account Request" window) confirm the change and continue the request in one
-step, while wallets that reject a mismatched request (MetaMask 4100, Rabby -32602) land on the
-wrong-address view, which opens the adapter's optional `requestAccountChange` prompt (EVM:
-EIP-2255 `wallet_requestPermissions` — a real picker on MetaMask — escalating to MIP-2
-`wallet_revokePermissions` + reconnect for the many wallets that resolve it silently from
-existing state). A guarded single-resume path ensures one approval — which can fire both the
-`accountsChanged` event and the prompt's resolution — never signs twice, and a late approval
-after an explicit Reject never signs at all. TRON omits the hook (TronLink has no equivalent)
-and keeps the passive wrong-address view. The source-verified per-wallet behaviors this cascade
-is built on are recorded in [docs/wallet-account-change.md](docs/wallet-account-change.md). The core owns the flow; the adapter owns the chain. This is what fixed the
-duplicated-bug problem the split was motivated by: the "don't `completeError` on a recoverable
-catch" contract and the settled-result / terminal-delivery handling (which had landed in
-`evm.html` but not `tron.html`) are now defined once and apply to both chains.
-
-This is the one place a small future build step could help: authoring the shared core (and the
-adapters) in TypeScript is task T0004 (`.tasks/0004-app-core-typescript.md`); it stays
-hand-written JS so `include_str!` needs no toolchain in the Node-less CI build.
+When the requested signer differs from the wallet's selected account, the core walks the EVM
+account-change cascade ([ADR 0005](docs/adr/0005-evm-account-change.md)). TRON omits the adapter hook
+and keeps the passive wrong-address view. Moving these files to TypeScript is
+[ADR 0009](docs/adr/0009-approval-pages-in-typescript.md) (proposed).
 
 ## Tooling
 
@@ -214,86 +176,41 @@ coverage job. A `prek` pre-commit hook mirrors the lint gate locally. The lint s
 picks and several rust lints, with documented `allow`s for the few that are pure noise on a
 pre-publish, multi-dependency workspace.
 
-## Roadmap
+## Language bindings
 
-### How persistent sessions actually work (and why there is no daemon phase)
+Each binding spawns and supervises a `serve --chain <chain>` subprocess and drives it over
+`POST /api/v1/request` ([ADR 0002](docs/adr/0002-no-daemon-managed-serve-subprocess.md)).
 
-The original `mcp-wallet-signer` (TS) has **no daemon** — no discovery file, no bearer auth, no
-`/api/v1`, no SSE. We read the reference to check, and the persistent-session problem is solved
-differently: its `WalletSigner` is a **long-lived in-process object that owns its HTTP server and
-binds a stable port**. You construct it once and reuse it for many operations; because the origin
-(`127.0.0.1:<port>`) stays fixed, the wallet skips the reconnect prompt on subsequent calls. The
-MCP server does exactly this — one `WalletSigner` at startup, reused across every tool call. The
-viem layer (`transport.ts`, `viem-account.ts`) is then a thin client of *that same in-process
-object*, not of any network service.
+- *TypeScript* ([`ts/`](ts)): `WalletSignerClient` plus a viem `CustomTransport` and hybrid
+  account (`transport.ts`, `viem-account.ts`) ported from the reference. Tested against the real
+  subprocess with a fake-wallet stand-in.
+- *Go* ([`go/`](go)): `EVMClient`, `TronClient` and `BtcClient`, standard library only
+  ([ADR 0004](docs/adr/0004-go-binding-stdlib-only.md)). Every operation takes a `context.Context`,
+  coded errors surface as typed values (`WrongWalletAddressError`), and results are domain types
+  parsed at the boundary. Tested against the real subprocess with the TypeScript binding's
+  fake-wallet stand-in.
 
-Our `EvmSigner` / `TronSigner` are already this: each owns an `Engine`, binds
-`BindPort::Preferred` (the stable port), and lazily starts the bridge on first use. **A Rust
-program gets persistent sessions today by holding a signer and reusing it** — no extra machinery.
+## Releases
 
-The one thing the reference never had to solve, but we do: there, the signer *and* its consumers
-live in the same Node process, so persistence is just object lifetime. In our port the server is
-**Rust**, so a TS/Go consumer can't hold it in-process. The lightweight, faithful analog is for
-the binding to **spawn and supervise a Rust bridge subprocess for its own lifetime** — the same
-`WalletSigner` lifecycle, across a process boundary the binding owns. One stable port, one
-persistent tab, dies with the parent. The port is learned from the child's stdout (the mechanism
-the e2e harnesses already use), so this needs **no discovery file and no auth** (it's a localhost
-child you spawned).
+`just release [major|minor|patch|X.Y.Z]` (`scripts/release.sh`) commits the version bump to main
+(or a `release/*` branch for a maintenance release) and pushes it with the `vX.Y.Z` tag. The tag
+starts [`release.yml`](.github/workflows/release.yml), which checks the tag against the versions
+and the branch, runs CI, publishes GitHub release binaries, npm
+([ADR 0003](docs/adr/0003-npm-platform-packages.md)) and crates.io, and pushes the `go/vX.Y.Z` tag that
+versions the Go module. Only admins may create `v*` tags, and the publishing jobs run in a
+`release` environment that only `v*` tags reach. Versions are lockstep across all of them.
 
-### Phases
+## Decision records
 
-- **Phase 4 — language bindings over a managed bridge subprocess.** ✅ done.
-  - *Control API:* `serve --chain evm|tron` runs the bridge on the preferred (stable) port for
-    the process lifetime and exposes `POST /api/v1/request` (create → open browser → block →
-    return result) + `GET /api/v1/health`, mounted via the `start_with` extension point. It
-    prints the bound port to stdout, then blocks. Generic over the chain's request type.
-  - *Rust:* `EvmSigner` / `TronSigner` are the reusable, persistent-session API (hold one and
-    reuse it).
-  - *TypeScript:* [`ts/`](ts) — `WalletSignerClient` spawns and supervises the `serve`
-    subprocess and drives it over `/api/v1`, plus a viem `CustomTransport` + hybrid account
-    (`transport.ts`, `viem-account.ts`) ported from the reference. Tested against the real
-    subprocess with a fake-wallet stand-in.
-  - *Go:* [`go/`](go) — `EVMClient` / `TronClient` spawn and supervise the `serve` subprocess and
-    drive it over `/api/v1`. A thin client covering both chains (connect / send / trigger /
-    deploy / message + typed-data signing); every op takes a `context.Context`, coded errors
-    surface as typed values (`WrongWalletAddressError`), and results are domain types parsed at
-    the boundary — `EVMAddress` / `TxHash` / `HexBytes` and `TronAddress` (canonical 21 bytes,
-    Base58Check). The binding depends on nothing outside the standard library (testify in tests
-    only). It once used go-ethereum's `common` / `hexutil` types, but a library's go-ethereum
-    requirement raises every consumer's, which silently broke a consumer's version-pinned fork
-    replace. `EVMAddress` and `TxHash` share go-ethereum's underlying types, so a consumer
-    converts with `common.Address(a)` / `common.Hash(h)`. No
-    viem-style layer — Go's go-ethereum signing model fits the wallet's `eth_sendTransaction`
-    poorly, so the raw client is the whole surface. Tested against the real subprocess, reusing the
-    TS binding's fake-wallet stand-in.
-- **Phase 4.5 — binary distribution.** ✅ done for TS (see
-  [`.github/workflows/release.yml`](.github/workflows/release.yml)). Tagging `vX.Y.Z` builds the
-  binary for 5 native targets (static musl on linux), uploads raw binaries + `SHA256SUMS` to a
-  GitHub release, and publishes npm packages: five `@nikicat/browser-web3-signer-<platform>`
-  packages carrying the binary, injected into the main `browser-web3-signer` package as
-  exact-pinned `optionalDependencies` at publish time (the esbuild/sass-embedded pattern — chosen
-  over install-script or first-run downloads because the binary rides npm's own machinery:
-  lockfile sha512 integrity, registry mirrors, offline cache, `--ignore-scripts` immunity).
-  Nothing is committed by the pipeline; versions are lockstep (npm == binary == tag). Cutting a
-  release is one command — `just release [major|minor|patch|X.Y.Z]` (`scripts/release.sh`) commits
-  the version bump to main (or a `release/*` branch for a maintenance release) and pushes it with
-  the `vX.Y.Z` tag. The tag push starts the workflow, which checks the tag against the versions
-  and the branch, runs CI, and pushes the `go/vX.Y.Z` tag that versions the Go module (a
-  subdirectory module needs its own prefixed tag). Only admins may create `v*` tags (a tag
-  ruleset), and the publishing jobs run in a `release` environment that only `v*` tags reach.
-  *Go auto-install is deferred* (task T0006): a Go module is served verbatim from the git tree,
-  so shipping a binary means either committing artifacts or downloading at runtime. Until then
-  Go users build from source, use `BROWSER_WEB3_SIGNER_BIN`, or grab a release binary.
-- **Phase 5 — full multi-client daemon (deferred; build only on demand).** A standalone
-  `daemon start|stop|status` with a discovery file (`{port, pid, token}`), bearer-token auth, a
-  control API (`POST /api/v1/…`), a request queue serializing human approval, a session cache,
-  and SSE to a persistent tab. This is only justified by a requirement the reference never had
-  and Phase 4 doesn't meet: **several independent processes sharing one connected wallet tab.**
-  Absent that, it is over-engineering — the per-binding managed subprocess above already gives a
-  single consumer a persistent session. The `start_with` / `build_router_with` extension point
-  (above) is the seam this would mount on if built. Tracked as task T0005.
-- **Phase 6 — tests & docs.** Integration tests and a Playwright mock-wallet e2e against the
-  Rust bridge (✅ EVM + TRON + Bitcoin, in [`tests/e2e-browser`](tests/e2e-browser)), plus expanded
-  docs. The e2e suite drives the real bridge through feature-gated harness binaries (`evm-harness`,
-  `tron-harness`, `btc-harness`, sharing generic plumbing) that mount test-only routes via the `start_with`
-  extension point above.
+Decisions and the alternatives they rejected are in [`docs/adr/`](docs/adr):
+
+- [0001](docs/adr/0001-bitcoin-support.md) Bitcoin browser-wallet support
+- [0002](docs/adr/0002-no-daemon-managed-serve-subprocess.md) No daemon; each binding supervises its own `serve`
+- [0003](docs/adr/0003-npm-platform-packages.md) Binaries for npm as per-platform `optionalDependencies`
+- [0004](docs/adr/0004-go-binding-stdlib-only.md) The Go binding depends on the standard library only
+- [0005](docs/adr/0005-evm-account-change.md) Getting an EVM wallet to switch accounts
+- [0006](docs/adr/0006-shared-app-core-js.md) One shared approval-page core, thin adapters, no build step
+- [0007](docs/adr/0007-preferred-port-with-fallback.md) Preferred port with ephemeral fallback
+- [0008](docs/adr/0008-no-read-side.md) No read side
+- [0009](docs/adr/0009-approval-pages-in-typescript.md) Approval pages in TypeScript (proposed)
+- [0010](docs/adr/0010-go-binary-auto-install.md) Installing the binary for Go users (proposed)

@@ -15,4 +15,4 @@ existing page core with a per-wallet driver, covered by the mock-wallet e2e.
 
 ## Next
 Check the Sats Connect / WBIP API against the wallet's source (not docs) before designing the
-driver — see the "check source, not the EIP" lesson in `docs/wallet-account-change.md`.
+driver — see the "check source, not the EIP" lesson in ADR 0005 (`docs/adr/0005-evm-account-change.md`).

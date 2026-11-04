@@ -10,8 +10,9 @@ hand-written JS. Author them in TypeScript for type safety. Done = typed sources
 still served via `include_str!`, CI still builds without Node.
 
 ## Decisions
-- Kept as JS so far because `include_str!` must work in the Node-less CI build.
+- The options and the recommendation are in ADR 0009
+  (`docs/adr/0009-approval-pages-in-typescript.md`, proposed).
 
 ## Next
-Pick one: transpile at serve time with a Deno runtime from the `.ts`, or compile in a build
-step and embed the emitted `.js` (committed, or built in CI).
+Accept or amend ADR 0009, then start with its recommended option (JSDoc types checked by
+`tsc --checkJs`).
