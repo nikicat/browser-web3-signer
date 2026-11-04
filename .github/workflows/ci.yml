@@ -63,7 +63,10 @@ jobs:
         run: cargo deny --locked check
 
       - name: shellcheck
-        run: git ls-files -z '*.sh' | xargs -0 shellcheck
+        run: |
+          # The container runs as root over a runner-owned checkout, which git refuses by default.
+          git config --global --add safe.directory "$PWD"
+          git ls-files -z '*.sh' | xargs -0 shellcheck
 
       - name: actionlint
         run: actionlint
