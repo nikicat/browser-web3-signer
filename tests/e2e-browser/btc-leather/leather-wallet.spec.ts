@@ -49,6 +49,9 @@ let address = ""; // the wallet's payment address, from connect
 let publicKey = ""; // its public key, from connect
 
 test.beforeAll(async () => {
+  // Fits regtest, Leather's launch and launchLeather's three 10 s seeding attempts; the default
+  // 30 s hook timeout cut a slow first attempt's retry short on a busy machine.
+  test.setTimeout(90_000);
   chain = await startRegtest();
   leather = await launchLeather(extDir!, chain.esploraUrl);
   page = await leather.context.newPage();
