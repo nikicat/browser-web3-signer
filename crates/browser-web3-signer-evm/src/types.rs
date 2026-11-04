@@ -6,10 +6,13 @@
 
 use alloy::primitives::Bytes;
 use browser_web3_signer_core::parse::{opt_parsed, req_parsed, str_field};
-use browser_web3_signer_core::{Request, RequestMeta, Url, UrlKind};
+use browser_web3_signer_core::{
+    ExpectedAccount, Request, RequestMeta, Url, UrlKind, expect_account,
+};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::config;
 use crate::domain::{Address, CallData, ChainId, Wei};
 
 /// EIP-712 typed data. The sub-objects are open-ended by the standard, so they stay as JSON
@@ -235,6 +238,25 @@ impl Request for EvmRequest {
     }
 }
 
+impl ExpectedAccount for EvmRequest {
+    type Account = Address;
+
+    const ACCOUNT_ENV: &'static str = config::ACCOUNT_ENV;
+
+    /// Addresses compare as values, so a checksummed and a lowercase spelling are the same
+    /// account.
+    fn expecting(mut self, account: &Address) -> Result<Self, String> {
+        let field = match &mut self {
+            Self::Connect { address, .. }
+            | Self::SignMessage { address, .. }
+            | Self::SignTypedData { address, .. } => address,
+            Self::SendTransaction { from, .. } => from,
+        };
+        expect_account(field, *account)?;
+        Ok(self)
+    }
+}
+
 /// Parameters for building a `connect` request, including optional custom-chain metadata.
 #[derive(Debug, Clone, Default)]
 pub struct ConnectParams {
@@ -373,6 +395,8 @@ fn str_opt(body: &serde_json::Value, key: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    const ADDRESS: &str = "0x52908400098527886E0F7030069857D2E4169EE7";
+
     #[test]
     fn connect_serializes_with_type_and_camelcase() {
         let req = EvmRequest::connect(Some(ChainId(1)), None);
@@ -386,11 +410,7 @@ mod tests {
     #[test]
     fn send_transaction_emits_wire_field_names() {
         let req = EvmRequest::send_transaction(SendTransactionParams {
-            to: Some(
-                "0x52908400098527886E0F7030069857D2E4169EE7"
-                    .parse()
-                    .unwrap(),
-            ),
+            to: Some(ADDRESS.parse().unwrap()),
             from: None,
             value: Some("1000".parse().unwrap()),
             data: Some("0xdead".parse().unwrap()),
@@ -501,11 +521,7 @@ mod tests {
         // A request built via the typed API serializes to the wire shape; parsing that wire
         // shape back via `from_json` reproduces the same request (modulo the fresh id).
         let original = EvmRequest::send_transaction(SendTransactionParams {
-            to: Some(
-                "0x52908400098527886E0F7030069857D2E4169EE7"
-                    .parse()
-                    .unwrap(),
-            ),
+            to: Some(ADDRESS.parse().unwrap()),
             from: None,
             value: Some("1000".parse().unwrap()),
             data: Some("0xdead".parse().unwrap()),
@@ -554,5 +570,45 @@ mod tests {
         let json = serde_json::to_value(&req).unwrap();
         assert_eq!(json["primaryType"], "Mail");
         assert_eq!(json["domain"]["name"], "X");
+    }
+
+    #[test]
+    fn expecting_defaults_keeps_and_refuses_the_account() {
+        const OTHER: &str = "0x8617e340b3d01fa5f11f306f4090fd50e238070d";
+        let account: Address = ADDRESS.parse().unwrap();
+        let expected = |body: serde_json::Value| {
+            EvmRequest::from_json(&body)
+                .and_then(|req| req.expecting(&account))
+                .map(|req| serde_json::to_value(&req).unwrap())
+        };
+        let lower = ADDRESS.to_lowercase();
+
+        let unset = [
+            (serde_json::json!({ "type": "connect" }), "address"),
+            (
+                serde_json::json!({ "type": "send_transaction", "to": OTHER }),
+                "from",
+            ),
+            (
+                serde_json::json!({ "type": "sign_message", "message": "hi" }),
+                "address",
+            ),
+            (
+                serde_json::json!({ "type": "sign_typed_data", "primaryType": "Mail" }),
+                "address",
+            ),
+        ];
+        for (body, field) in unset {
+            let mut same = body.clone();
+            same[field] = serde_json::json!(ADDRESS);
+            let mut other = body.clone();
+            other[field] = serde_json::json!(OTHER);
+
+            assert_eq!(expected(body).unwrap()[field], lower, "unset {field}");
+            // A checksummed spelling of the same address is the same account.
+            assert_eq!(expected(same).unwrap()[field], lower, "same {field}");
+            let err = expected(other).unwrap_err();
+            assert!(err.contains(OTHER) && err.contains(&lower), "{err}");
+        }
     }
 }

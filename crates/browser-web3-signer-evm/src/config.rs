@@ -9,6 +9,8 @@ use crate::domain::ChainId;
 pub const PORT_ENV: &str = "BROWSER_WEB3_EVM_PORT";
 /// Environment variable for the default chain id.
 pub const CHAIN_ENV: &str = "BROWSER_WEB3_EVM_CHAIN";
+/// Environment variable for the account every request to a `serve` process must use.
+pub const ACCOUNT_ENV: &str = "BROWSER_WEB3_EVM_ACCOUNT";
 /// Default chain id when none is configured (Ethereum mainnet).
 pub const DEFAULT_CHAIN_ID: ChainId = ChainId(1);
 

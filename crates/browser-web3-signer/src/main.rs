@@ -102,8 +102,9 @@ impl GlobalOpts {
 }
 
 impl OpenMode {
-    /// The engine-level [`BrowserChoice`] this open mode corresponds to. Used by `serve`, which
-    /// hands the choice to the engine (rather than driving the open itself like the one-shot CLI).
+    /// The engine-level [`BrowserChoice`](browser_web3_signer_core::BrowserChoice) this open mode
+    /// corresponds to. Used by `serve`, which hands the choice to the engine (rather than driving
+    /// the open itself like the one-shot CLI).
     pub(crate) const fn browser_choice(&self) -> browser_web3_signer_core::BrowserChoice {
         use browser_web3_signer_core::BrowserChoice;
         match self {

@@ -3,10 +3,14 @@
 //! The JSON shapes here must stay byte-compatible with the browser UI and the TypeScript
 //! adaptors (ported from `wallet-signer-core/src/types.ts`).
 
+use std::fmt;
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::browser::UrlKind;
+use crate::config::account_from_env;
 
 /// Trait every chain-specific pending request must satisfy.
 ///
@@ -37,6 +41,48 @@ pub trait Request: Serialize + Sized + Clone + Send + Sync + 'static {
     /// request. The default accepts anything.
     fn check_result(&self, _result: &str) -> Result<(), String> {
         Ok(())
+    }
+}
+
+/// A request that can be pinned to one wallet account, so a `serve` process accepts requests only
+/// for the configured account.
+///
+/// Each chain decides which field holds the account and how two accounts compare.
+pub trait ExpectedAccount: Request {
+    /// The chain's account (address) type, as the environment variable holds it.
+    type Account: FromStr<Err: fmt::Display> + Send + Sync + 'static;
+
+    /// The environment variable naming the account a `serve` process expects.
+    const ACCOUNT_ENV: &'static str;
+
+    /// Returns the account in [`Self::ACCOUNT_ENV`], or `None` when the variable is unset or empty.
+    /// Errors when the value does not parse. The error names the variable.
+    fn configured_account() -> Result<Option<Self::Account>, String> {
+        account_from_env(Self::ACCOUNT_ENV)
+    }
+
+    /// Returns this request set to expect `account`. A request that names no account takes it,
+    /// and one that names the same account is kept.
+    ///
+    /// Errors when the request names another account. The reason names both.
+    fn expecting(self, account: &Self::Account) -> Result<Self, String>;
+}
+
+/// Applies the rule of [`ExpectedAccount::expecting`] to one optional account field. An unset
+/// field is set to `account` in place.
+pub fn expect_account<A>(field: &mut Option<A>, account: A) -> Result<(), String>
+where
+    A: PartialEq + fmt::Display,
+{
+    match field {
+        None => {
+            *field = Some(account);
+            Ok(())
+        }
+        Some(named) if *named == account => Ok(()),
+        Some(named) => Err(format!(
+            "the request names account {named}, not the expected {account}"
+        )),
     }
 }
 
@@ -209,5 +255,19 @@ mod tests {
             serde_json::from_value(serde_json::json!({ "success": true, "result": "0x1" }))
                 .unwrap();
         assert_eq!(RequestResult::from(body), RequestResult::success("0x1"));
+    }
+
+    #[test]
+    fn expect_account_defaults_keeps_and_refuses() {
+        let mut unset = None;
+        expect_account(&mut unset, 7).unwrap();
+        assert_eq!(unset, Some(7));
+
+        let mut same = Some(7);
+        expect_account(&mut same, 7).unwrap();
+        assert_eq!(same, Some(7));
+
+        let err = expect_account(&mut Some(8), 7).unwrap_err();
+        assert!(err.contains('8') && err.contains('7'), "{err}");
     }
 }

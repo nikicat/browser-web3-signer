@@ -1,0 +1,27 @@
+# cargo-deny: RustSec advisories, license allow-list, crate sources. Run with `just deny`.
+
+[advisories]
+# Unmaintained crates are reported only when the workspace depends on them directly.
+unmaintained = "workspace"
+
+[licenses]
+# Every license in the dependency tree today. A new one fails CI until it is reviewed here.
+allow = [
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "MIT",
+  "MITNFA",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

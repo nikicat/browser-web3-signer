@@ -1,19 +1,28 @@
-# EVM wallet account-change mechanisms
+# ADR 0005: Getting an EVM wallet to switch accounts
 
-How the approval UI gets a browser wallet to change its selected account when a request's
+- **Status:** accepted
+- **Date:** 2026-07-21
+
+## Context
+
+The approval UI must get a browser wallet to change its selected account when a request's
 expected signer (`from` for transactions, `address` for connect/message signing) differs from
 the connected one. The flow lives in
-[`app-core.js`](../crates/browser-web3-signer-core/web/app-core.js) (chain-agnostic state
-machine) and [`evm.html`](../crates/browser-web3-signer-evm/web/evm.html) (EVM adapter), shipped
+[`app-core.js`](../../crates/browser-web3-signer-core/web/app-core.js) (chain-agnostic state
+machine) and [`evm.html`](../../crates/browser-web3-signer-evm/web/evm.html) (EVM adapter), shipped
 in v0.3.0. This document records the **source-verified** wallet behaviors the design is built
 on (verified 2026-07-21; Ambire at extension v6.14.4), so future wallet-compat work does not
 have to re-research them. The e2e mock wallet
-([`tests/e2e-browser/evm/fixtures/mock-wallet.mts`](../tests/e2e-browser/evm/fixtures/mock-wallet.mts))
+([`tests/e2e-browser/evm/fixtures/mock-wallet.mts`](../../tests/e2e-browser/evm/fixtures/mock-wallet.mts))
 models each behavior below.
 
-## The cascade
+EIP-2255 leaves the account-switch UX unspecified, and wallets diverge widely: two mechanisms
+that were "correct per spec" turned out wrong for Ambire. So each step below rests on the
+wallet's source, not on the EIP text.
 
-Each wallet lands on the first mechanism it supports; every failure stays in-page (only an
+## Decision
+
+The approval page tries the mechanisms below in order. Each wallet lands on the first mechanism it supports; every failure stays in-page (only an
 explicit Reject/Cancel propagates to the caller), and the worst case degrades to the passive
 pre-v0.3.0 behavior.
 
@@ -110,10 +119,8 @@ Rejections stay in-page; a wallet with no account-change UI (`null` / -32601) lo
   Coinbase Wallet SDK has no `wallet_requestPermissions` handling (they push `wallet_connect`
   / sub-accounts instead). All unverified beyond that — expected to land on step 3 or 4.
 
-## Notes for future work
+## Consequences
 
-- EIP-7846 `wallet_connect` was not implemented by any of the wallets checked (2026-07); worth
-  revisiting as adoption grows — it standardizes exactly this.
-- When a wallet misbehaves here, check the wallet's actual source rather than EIP docs — the
-  EIP-2255 UX is unspecified and implementations diverge widely (this document exists because
-  two plausible mechanisms were "correct per spec" but wrong for Ambire).
+- New wallet-compat work starts from the wallet's source, as this record did.
+- EIP-7846 `wallet_connect` would standardize this flow; no checked wallet implemented it
+  (2026-07). Task T0007 tracks revisiting it.

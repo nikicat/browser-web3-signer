@@ -2,10 +2,13 @@
 //! `GET /api/pending/:id` (ported from `browser-tron-signer/src/types.ts`).
 
 use browser_web3_signer_core::parse::{opt_parsed, req_parsed, str_field};
-use browser_web3_signer_core::{HexData, Request, RequestMeta, UrlKind};
+use browser_web3_signer_core::{
+    ExpectedAccount, HexData, Request, RequestMeta, UrlKind, expect_account,
+};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::config;
 use crate::domain::{EnergyLimit, Percentage, Sun, TronAddress, TronNetwork};
 
 /// TIP-712 typed data (shape mirrors EIP-712). Open-ended sub-objects stay as JSON.
@@ -218,6 +221,25 @@ impl Request for TronRequest {
     }
 }
 
+impl ExpectedAccount for TronRequest {
+    type Account = TronAddress;
+
+    const ACCOUNT_ENV: &'static str = config::ACCOUNT_ENV;
+
+    fn expecting(mut self, account: &TronAddress) -> Result<Self, String> {
+        let field = match &mut self {
+            Self::Connect { address, .. }
+            | Self::SignMessage { address, .. }
+            | Self::SignTypedData { address, .. } => address,
+            Self::SendTransaction { from, .. }
+            | Self::TriggerContract { from, .. }
+            | Self::DeployContract { from, .. } => from,
+        };
+        expect_account(field, *account)?;
+        Ok(self)
+    }
+}
+
 /// Parameters for a native TRX transfer.
 #[derive(Debug, Clone)]
 pub struct SendTransactionParams {
@@ -370,10 +392,12 @@ fn json_field(body: &serde_json::Value, key: &str) -> serde_json::Value {
 mod tests {
     use super::*;
 
+    const ADDRESS: &str = "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC";
+
     #[test]
     fn send_transaction_emits_wire_shape() {
         let req = TronRequest::send_transaction(SendTransactionParams {
-            to: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC".parse().unwrap(),
+            to: ADDRESS.parse().unwrap(),
             from: None,
             amount: "1500000".parse().unwrap(),
             data: None,
@@ -383,13 +407,13 @@ mod tests {
         assert_eq!(json["type"], "send_transaction");
         assert_eq!(json["amount"], "1500000");
         assert_eq!(json["network"], "mainnet");
-        assert_eq!(json["to"], "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC");
+        assert_eq!(json["to"], ADDRESS);
     }
 
     #[test]
     fn trigger_contract_uses_camelcase() {
         let req = TronRequest::trigger_contract(TriggerContractParams {
-            contract_address: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC".parse().unwrap(),
+            contract_address: ADDRESS.parse().unwrap(),
             from: None,
             function_selector: "transfer(address,uint256)".into(),
             parameters: Some(serde_json::json!([{"type":"uint256","value":"1"}])),
@@ -407,7 +431,7 @@ mod tests {
     #[test]
     fn from_json_round_trips_trigger_contract() {
         let original = TronRequest::trigger_contract(TriggerContractParams {
-            contract_address: "TJRyWwFs9wTFGZg3JbrVriFbNfCug5tDeC".parse().unwrap(),
+            contract_address: ADDRESS.parse().unwrap(),
             from: None,
             function_selector: "transfer(address,uint256)".into(),
             parameters: Some(serde_json::json!([{ "type": "uint256", "value": "1" }])),
@@ -453,5 +477,54 @@ mod tests {
         // Present but invalid Base58Check address.
         let bad = serde_json::json!({ "type": "connect", "address": "Tnot-valid" });
         assert!(TronRequest::from_json(&bad).is_err());
+    }
+
+    #[test]
+    fn expecting_defaults_keeps_and_refuses_the_account() {
+        const OTHER: &str = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+        let account: TronAddress = ADDRESS.parse().unwrap();
+        let expected = |body: serde_json::Value| {
+            TronRequest::from_json(&body)
+                .and_then(|req| req.expecting(&account))
+                .map(|req| serde_json::to_value(&req).unwrap())
+        };
+
+        let unset = [
+            (serde_json::json!({ "type": "connect" }), "address"),
+            (
+                serde_json::json!({ "type": "send_transaction", "to": OTHER, "amount": "1" }),
+                "from",
+            ),
+            (
+                serde_json::json!({
+                    "type": "trigger_contract", "contractAddress": OTHER,
+                    "functionSelector": "f()",
+                }),
+                "from",
+            ),
+            (
+                serde_json::json!({ "type": "deploy_contract", "abi": [], "bytecode": "0x60" }),
+                "from",
+            ),
+            (
+                serde_json::json!({ "type": "sign_message", "message": "hi" }),
+                "address",
+            ),
+            (
+                serde_json::json!({ "type": "sign_typed_data", "primaryType": "Mail" }),
+                "address",
+            ),
+        ];
+        for (body, field) in unset {
+            let mut same = body.clone();
+            same[field] = serde_json::json!(ADDRESS);
+            let mut other = body.clone();
+            other[field] = serde_json::json!(OTHER);
+
+            assert_eq!(expected(body).unwrap()[field], ADDRESS, "unset {field}");
+            assert_eq!(expected(same).unwrap()[field], ADDRESS, "same {field}");
+            let err = expected(other).unwrap_err();
+            assert!(err.contains(OTHER) && err.contains(ADDRESS), "{err}");
+        }
     }
 }

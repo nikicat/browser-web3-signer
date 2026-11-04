@@ -1,6 +1,6 @@
 //! Chain-agnostic engine for browser-based wallet signing.
 //!
-//! A program registers a signing [`Request`](types::Request); the engine opens a local browser
+//! A program registers a signing [`Request`]; the engine opens a local browser
 //! page where the user approves it in their own wallet (MetaMask, Rabby, TronLink, …). The
 //! private key never leaves the browser. The bridge binds `127.0.0.1` only.
 //!
@@ -27,7 +27,10 @@ pub use http::build_router_with;
 pub use parse::DomainParseError;
 pub use pending_store::{PendingStore, REQUEST_TIMEOUT, generate_request_id};
 pub use shared::Shared;
-pub use types::{CompleteApiRequest, PendingApiResponse, Request, RequestMeta, RequestResult};
+pub use types::{
+    CompleteApiRequest, ExpectedAccount, PendingApiResponse, Request, RequestMeta, RequestResult,
+    expect_account,
+};
 
 /// Re-exported so downstream crates share one `Url` type for approval URLs.
 pub use url::Url;

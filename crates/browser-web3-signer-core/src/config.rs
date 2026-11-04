@@ -1,6 +1,7 @@
 //! Shared configuration helpers and the [`Port`] / [`BindPort`] domain types
 //! (ported from `config.ts`).
 
+use std::env::VarError;
 use std::fmt;
 use std::num::NonZeroU16;
 use std::str::FromStr;
@@ -66,6 +67,35 @@ pub fn port_from_env(env_name: &str, default_port: Port) -> Port {
         .unwrap_or(default_port)
 }
 
+/// Reads an `A` from the environment variable `env_name`.
+///
+/// Returns `None` when the variable is unset or empty. Errors when the value is not Unicode or
+/// does not parse as an `A`. The error names the variable.
+pub(crate) fn account_from_env<A>(env_name: &str) -> Result<Option<A>, String>
+where
+    A: FromStr,
+    A::Err: fmt::Display,
+{
+    let account = match std::env::var(env_name) {
+        Ok(value) => parse_account(&value),
+        Err(VarError::NotPresent) => Ok(None),
+        Err(e @ VarError::NotUnicode(_)) => Err(e.to_string()),
+    };
+    account.map_err(|e| format!("invalid {env_name}: {e}"))
+}
+
+/// Parses an account variable's value, empty meaning no account. Errors with the parse reason.
+fn parse_account<A>(value: &str) -> Result<Option<A>, String>
+where
+    A: FromStr,
+    A::Err: fmt::Display,
+{
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value.parse().map(Some).map_err(|e: A::Err| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,5 +113,20 @@ mod tests {
         assert_eq!(serde_json::to_value(p).unwrap(), serde_json::json!(3847));
         let back: Port = serde_json::from_value(serde_json::json!(3847)).unwrap();
         assert_eq!(back, p);
+    }
+
+    #[test]
+    fn account_variable_is_optional_and_parsed() {
+        // `Port` stands in for a chain's address type: any `FromStr` reads the same way.
+        assert_eq!(
+            account_from_env::<Port>("BROWSER_WEB3_TEST_UNSET_ACCOUNT"),
+            Ok(None)
+        );
+        assert_eq!(parse_account::<Port>(""), Ok(None));
+        assert_eq!(parse_account::<Port>("3847"), Ok(Port::try_new(3847)));
+        assert_eq!(
+            parse_account::<Port>("nope"),
+            Err("nope".parse::<Port>().unwrap_err())
+        );
     }
 }
