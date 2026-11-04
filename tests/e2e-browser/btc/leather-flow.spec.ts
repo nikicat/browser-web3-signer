@@ -56,6 +56,19 @@ test("connects and returns the payment (native segwit) address", async ({ browse
   });
 });
 
+test("picks up a Leather that injects after the page stopped waiting", async ({ browser }) => {
+  // Past the page's 1.5 s initial wait, so only the later re-check can find it.
+  await using ctx = await walletContext(browser, { injectAfterMs: 3000 });
+  const page = await ctx.newPage();
+
+  const { id } = await createTestRequest("sign_message", { network: "regtest", message: "late" });
+  await page.goto(`${getBaseUrl()}/sign/${id}`);
+  await expect(page.locator("#msg-no-wallet")).toBeVisible();
+  await page.getByRole("button", { name: "Sign", exact: true }).click({ timeout: 10000 });
+  await expect(page.getByText("Signed Successfully!")).toBeVisible({ timeout: 10000 });
+  expect((await getTestResult(id))!.result).toBe(FAKE_SIGNATURE);
+});
+
 test("connects to the Taproot address when that's the one required", async ({ browser }) => {
   await using ctx = await walletContext(browser);
   const page = await ctx.newPage();

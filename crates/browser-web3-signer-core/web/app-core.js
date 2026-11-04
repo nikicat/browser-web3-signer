@@ -18,7 +18,7 @@
  *   logTag: string                         // console prefix, e.g. "browser-evm-signer"
  *
  *   setup(): Promise<void>                 // one-time wallet discovery / readiness wait
- *   hasWallet(): boolean
+ *   hasWallet(): boolean                   // polled until true: a wallet may inject late
  *   walletName(): string
  *   walletIcon(): string | null           // data: URI, or null when unknown
  *   addressMatch(a, b): boolean
@@ -807,6 +807,27 @@
   };
 
   /** Returns a failed view to the normal one, for an error the wallet has since resolved. */
+  // Wires the wallet's events into the page: the account it selects, and its chain becoming the
+  // request's. Each hook is a no-op until a wallet is there.
+  function followWallet() {
+    if (adapter.onChainReady) adapter.onChainReady(request, clearStaleError);
+    followSelectedAccount();
+  }
+
+  // Waits for a wallet that injects after setup() stopped waiting (an extension's service worker
+  // that was asleep can take seconds), then shows the request for it. Without this the page
+  // shows "no wallet" until it is reloaded.
+  function awaitLateWallet() {
+    if (adapter.hasWallet()) return;
+    var timer = setInterval(async function () {
+      if (!adapter.hasWallet()) return;
+      clearInterval(timer);
+      connectedAddress = await adapter.currentAddress();
+      followWallet();
+      render();
+    }, 250);
+  }
+
   function clearStaleError() {
     if (viewStatus !== "error" || finished) return;
     viewStatus = "idle";
@@ -841,8 +862,7 @@
       request = await fetchPendingRequest(match[2]);
       // An error shown before the wallet reached the request's chain was likely the missing
       // network; the user retries from the normal view instead of a stale message.
-      if (adapter.onChainReady) adapter.onChainReady(request, clearStaleError);
-      followSelectedAccount();
+      followWallet();
       if (request.type === "connect") {
         showView("view-connect");
         renderConnect();
@@ -856,6 +876,7 @@
         showView("view-error");
         $("error-msg").textContent = "Unknown request type";
       }
+      awaitLateWallet();
     } catch (err) {
       var msg = errMessage(err, "Failed to load request");
       if (msg.includes("not found") || msg.includes("404")) showView("view-not-found");

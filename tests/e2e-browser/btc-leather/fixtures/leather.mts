@@ -148,7 +148,11 @@ export async function approve(leather: Leather, action: PopupAction): Promise<vo
       if (!popup.isClosed()) await popup.waitForEvent("close", { timeout: 10000 }).catch(() => {});
       continue;
     }
-    return action.run(popup);
+    // Every action's click closes the popup, and the close can land before click() returns:
+    // Playwright then reports the closed page as an error although the click went through.
+    return action.run(popup).catch((err: unknown) => {
+      if (!popup.isClosed()) throw err;
+    });
   }
   throw new Error("Leather kept asking for account approval; the operation's popup never came");
 }

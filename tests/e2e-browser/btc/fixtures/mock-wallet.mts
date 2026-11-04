@@ -142,10 +142,13 @@ export const LEATHER_TAPROOT_PUBLIC_KEY = "03" + "22".repeat(32);
 export interface MockLeatherOptions {
   /** Reject signing calls with Leather's user-rejection error. */
   rejectSign?: boolean;
+  /** Inject the provider this long after page load, like an extension whose worker was asleep. */
+  injectAfterMs?: number;
 }
 
 interface MockLeatherConfig {
   rejectSign: boolean;
+  injectAfterMs: number;
   segwit: string;
   taproot: string;
   publicKeys: { segwit: string; taproot: string };
@@ -160,6 +163,7 @@ interface MockLeatherConfig {
 export function addMockLeather(ctx: Pick<BrowserContext, "addInitScript">, options?: MockLeatherOptions) {
   return ctx.addInitScript(installMockLeather, {
     rejectSign: options?.rejectSign ?? false,
+    injectAfterMs: options?.injectAfterMs ?? 0,
     segwit: LEATHER_SEGWIT_ADDRESS,
     taproot: LEATHER_TAPROOT_ADDRESS,
     publicKeys: { segwit: LEATHER_SEGWIT_PUBLIC_KEY, taproot: LEATHER_TAPROOT_PUBLIC_KEY },
@@ -178,7 +182,7 @@ function installMockLeather(cfg: MockLeatherConfig) {
   const ok = (result: unknown) => ({ jsonrpc: "2.0", id: "1", result });
   const rejection = { jsonrpc: "2.0", id: "1", error: { code: 4001, message: "User rejected request" } };
 
-  (window as any).LeatherProvider = {
+  const provider = {
     isLeather: true,
     async request(method: string, params: any) {
       calls.push({ method, params });
@@ -199,5 +203,8 @@ function installMockLeather(cfg: MockLeatherConfig) {
       throw { jsonrpc: "2.0", id: "1", error: { code: -32601, message: "Method not found: " + method } };
     },
   };
-  console.log("[MockLeather] Injected");
+  setTimeout(() => {
+    (window as any).LeatherProvider = provider;
+    console.log("[MockLeather] Injected");
+  }, cfg.injectAfterMs);
 }
