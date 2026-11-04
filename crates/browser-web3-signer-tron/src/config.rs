@@ -11,6 +11,8 @@ use crate::domain::TronNetwork;
 pub const PORT_ENV: &str = "BROWSER_WEB3_TRON_PORT";
 /// Environment variable for the default network.
 pub const NETWORK_ENV: &str = "BROWSER_WEB3_TRON_NETWORK";
+/// Environment variable for the account every request to a `serve` process must use.
+pub const ACCOUNT_ENV: &str = "BROWSER_WEB3_TRON_ACCOUNT";
 /// Default HTTP bridge port for TRON (separate from EVM's 3847).
 pub const DEFAULT_TRON_PORT: Port = Port::new(match NonZeroU16::new(3848) {
     Some(n) => n,

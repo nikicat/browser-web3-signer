@@ -67,6 +67,10 @@ A request's approval page (`/connect` vs `/sign`) is reported by the request its
 `serve` control API, and the e2e harness all stay chain-agnostic — there is one source of truth
 for the discriminator and the wire shape, shared across EVM and TRON.
 
+When the chain's `BROWSER_WEB3_{EVM,TRON,BTC}_ACCOUNT` is set, `serve` binds every request to that
+account, read once at startup. The core trait `ExpectedAccount` owns the rule, and each chain
+implements it. `from_json` does not read the account variable, so the e2e harness is unaffected.
+
 ## Core abstractions (`browser-web3-signer-core`)
 
 - **`PendingStore<R>`** — `Mutex<HashMap<Uuid, (request, oneshot::Sender)>>`. `create`

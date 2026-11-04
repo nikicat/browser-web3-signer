@@ -6,7 +6,9 @@
 
 use bitcoin::Txid;
 use browser_web3_signer_core::parse::{opt_parsed, req_parsed, str_field};
-use browser_web3_signer_core::{DomainParseError, Request, RequestMeta, UrlKind};
+use browser_web3_signer_core::{
+    DomainParseError, ExpectedAccount, Request, RequestMeta, UrlKind, expect_account,
+};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -280,6 +282,33 @@ impl Request for BtcRequest {
     }
 }
 
+impl ExpectedAccount for BtcRequest {
+    type Account = UncheckedAddress;
+
+    const ACCOUNT_ENV: &'static str = config::ACCOUNT_ENV;
+
+    /// Also refuses an account that is not on the request's network.
+    fn expecting(mut self, account: &UncheckedAddress) -> Result<Self, String> {
+        let (network, field) = match &mut self {
+            Self::Connect {
+                network, address, ..
+            }
+            | Self::SignMessage {
+                network, address, ..
+            } => (*network, address),
+            Self::SendTransfer { network, from, .. } | Self::SignPsbt { network, from, .. } => {
+                (*network, from)
+            }
+        };
+        let account = account
+            .clone()
+            .require_network(network)
+            .map_err(|e| format!("expected account: {e}"))?;
+        expect_account(field, account)?;
+        Ok(self)
+    }
+}
+
 /// Read an optional boolean field, defaulting to `false`.
 fn bool_field(body: &serde_json::Value, key: &str) -> Result<bool, String> {
     body.get(key).map_or(Ok(false), |v| {
@@ -471,5 +500,58 @@ mod tests {
             "type": "sign_psbt", "psbt": PSBT_HEX, "finalize": "yes",
         });
         assert!(BtcRequest::from_json(&bad_bool).is_err());
+    }
+
+    #[test]
+    fn expecting_defaults_keeps_and_refuses_the_account() {
+        /// Another signet address than `TEST`.
+        const OTHER: &str = "tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7";
+        let account: UncheckedAddress = TEST.parse().unwrap();
+        let expected = |body: serde_json::Value| {
+            BtcRequest::from_json(&body)
+                .and_then(|req| req.expecting(&account))
+                .map(|req| serde_json::to_value(&req).unwrap())
+        };
+
+        let unset = [
+            (
+                serde_json::json!({ "type": "connect", "network": "signet" }),
+                "address",
+            ),
+            (
+                serde_json::json!({
+                    "type": "send_transfer", "network": "signet", "to": OTHER, "amount": "1",
+                }),
+                "from",
+            ),
+            (
+                serde_json::json!({ "type": "sign_psbt", "network": "signet", "psbt": PSBT_HEX }),
+                "from",
+            ),
+            (
+                serde_json::json!({ "type": "sign_message", "network": "signet", "message": "hi" }),
+                "address",
+            ),
+        ];
+        for (body, field) in unset {
+            let mut same = body.clone();
+            same[field] = serde_json::json!(TEST);
+            let mut other = body.clone();
+            other[field] = serde_json::json!(OTHER);
+            let mut mainnet = body.clone();
+            mainnet["network"] = serde_json::json!("mainnet");
+            if mainnet.get("to").is_some() {
+                mainnet["to"] = serde_json::json!(MAIN);
+            }
+            assert!(BtcRequest::from_json(&mainnet).is_ok());
+
+            assert_eq!(expected(body).unwrap()[field], TEST, "unset {field}");
+            assert_eq!(expected(same).unwrap()[field], TEST, "same {field}");
+            let err = expected(other).unwrap_err();
+            assert!(err.contains(OTHER) && err.contains(TEST), "{err}");
+            // The account is a signet address, so a mainnet request can't expect it.
+            let err = expected(mainnet).unwrap_err();
+            assert!(err.contains("not a mainnet address"), "{err}");
+        }
     }
 }

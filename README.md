@@ -308,15 +308,25 @@ All interfaces read the same environment variables:
 | --- | --- | --- |
 | `BROWSER_WEB3_EVM_PORT` | `3847` | Preferred bridge port for EVM |
 | `BROWSER_WEB3_EVM_CHAIN` | `1` | Default EVM chain id |
+| `BROWSER_WEB3_EVM_ACCOUNT` | — | Account every `serve --chain evm` request must use |
 | `BROWSER_WEB3_TRON_PORT` | `3848` | Preferred bridge port for TRON |
 | `BROWSER_WEB3_TRON_NETWORK` | `mainnet` | Default TRON network |
+| `BROWSER_WEB3_TRON_ACCOUNT` | — | Account every `serve --chain tron` request must use |
 | `BROWSER_WEB3_BTC_PORT` | `3849` | Preferred bridge port for Bitcoin |
 | `BROWSER_WEB3_BTC_NETWORK` | `mainnet` | Default Bitcoin network |
+| `BROWSER_WEB3_BTC_ACCOUNT` | — | Account every `serve --chain btc` request must use |
 | `BROWSER` | — | Browser binary to open (else OS default) |
 | `BROWSER_WEB3_SIGNER_BIN` | — | Explicit signer-binary path for the language bindings |
 
 The port is *preferred*, not mandatory: if it's already in use (a concurrent command, or a
 daemon), the command falls back to an OS-assigned ephemeral port instead of failing.
+
+Set an account variable to tie a `serve` process, and any language-binding client that spawns
+it, to one wallet account. The account is the `address` of a connect or a message or typed-data
+signature, and the `from` of a transaction or a PSBT signing. A request that leaves it out gets
+the configured account. A request that names another account is refused with HTTP `400`. A
+Bitcoin account must also be on the request's network. An invalid value fails `serve` at
+startup. Unset or empty means any account.
 
 ## Security model
 

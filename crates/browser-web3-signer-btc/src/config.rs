@@ -10,6 +10,8 @@ use crate::domain::BtcNetwork;
 pub const PORT_ENV: &str = "BROWSER_WEB3_BTC_PORT";
 /// Environment variable for the default network.
 pub const NETWORK_ENV: &str = "BROWSER_WEB3_BTC_NETWORK";
+/// Environment variable for the account every request to a `serve` process must use.
+pub const ACCOUNT_ENV: &str = "BROWSER_WEB3_BTC_ACCOUNT";
 /// Default HTTP bridge port for Bitcoin (next to EVM's 3847 and TRON's 3848).
 pub const DEFAULT_BTC_PORT: Port = Port::new(match NonZeroU16::new(3849) {
     Some(n) => n,

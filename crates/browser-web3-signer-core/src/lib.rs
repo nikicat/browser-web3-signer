@@ -27,7 +27,10 @@ pub use http::build_router_with;
 pub use parse::DomainParseError;
 pub use pending_store::{PendingStore, REQUEST_TIMEOUT, generate_request_id};
 pub use shared::Shared;
-pub use types::{CompleteApiRequest, PendingApiResponse, Request, RequestMeta, RequestResult};
+pub use types::{
+    CompleteApiRequest, ExpectedAccount, PendingApiResponse, Request, RequestMeta, RequestResult,
+    expect_account,
+};
 
 /// Re-exported so downstream crates share one `Url` type for approval URLs.
 pub use url::Url;
