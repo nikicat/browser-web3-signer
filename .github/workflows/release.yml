@@ -348,6 +348,8 @@ jobs:
           - macos-15-intel
           - macos-15
           - windows-latest
+    # A hung install otherwise holds the release run, and the queue behind it, for 6 hours.
+    timeout-minutes: 20
     runs-on: ${{ matrix.runner }}
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
