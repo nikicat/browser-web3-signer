@@ -2,7 +2,7 @@
 //! (`/api/test/*`) that the Playwright suite drives. Feature-gated behind `e2e`; never shipped in
 //! production.
 //!
-//! All the plumbing lives in [`common::harness`]; request-building is `BtcRequest::from_json`
+//! All the plumbing lives in [`harness`]; request-building is `BtcRequest::from_json`
 //! (shared with the `serve` control API). See `tests/e2e-browser/README.md` for the lifecycle.
 
 #[path = "common/harness.rs"]

@@ -5,6 +5,12 @@ on:
     branches: ['**']
   pull_request:
   workflow_call: # the Release workflow gates publishing on it
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,7 +18,7 @@ env:
 
 jobs:
   ci:
-    name: fmt + taplo + clippy + build + test
+    name: fmt + taplo + clippy + docs + deny + build + test + script/workflow lint
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
@@ -20,7 +26,8 @@ jobs:
       - name: Install system dependencies
         run: |
           pacman -Syu --noconfirm --needed \
-            base-devel git pkgconf rustup taplo-cli
+            base-devel git pkgconf rustup taplo-cli \
+            cargo-deny shellcheck actionlint zizmor
           # rust-toolchain.toml drives channel + components on first cargo call.
 
       - uses: actions/checkout@v7
@@ -46,6 +53,25 @@ jobs:
 
       - name: clippy
         run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
+      - name: rustdoc
+        run: cargo doc --no-deps --workspace --all-features --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      - name: cargo-deny
+        run: cargo deny --locked check
+
+      - name: shellcheck
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck
+
+      - name: actionlint
+        run: actionlint
+
+      - name: zizmor
+        run: zizmor --min-severity medium .github/workflows/
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: build
         run: cargo build --all-targets --locked
@@ -187,7 +213,7 @@ jobs:
         working-directory: ts
         run: npm test
 
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: v2.x
 
@@ -262,7 +288,7 @@ jobs:
 
       - name: Upload to Codecov
         if: always()
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: lcov.info
           fail_ci_if_error: false

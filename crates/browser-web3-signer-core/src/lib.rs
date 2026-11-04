@@ -1,6 +1,6 @@
 //! Chain-agnostic engine for browser-based wallet signing.
 //!
-//! A program registers a signing [`Request`](types::Request); the engine opens a local browser
+//! A program registers a signing [`Request`]; the engine opens a local browser
 //! page where the user approves it in their own wallet (MetaMask, Rabby, TronLink, …). The
 //! private key never leaves the browser. The bridge binds `127.0.0.1` only.
 //!

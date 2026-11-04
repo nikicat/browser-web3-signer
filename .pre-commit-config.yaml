@@ -32,6 +32,33 @@ repos:
         pass_filenames: false
         files: \.toml$
 
+      - id: rustdoc
+        name: rustdoc
+        entry: env RUSTDOCFLAGS=-Dwarnings cargo doc --no-deps --workspace --all-features --locked
+        language: system
+        pass_filenames: false
+        files: \.rs$
+
+      - id: shellcheck
+        name: shellcheck
+        entry: shellcheck
+        language: system
+        files: \.sh$
+
+      - id: actionlint
+        name: actionlint
+        entry: actionlint
+        language: system
+        files: ^\.github/workflows/
+
+      - id: zizmor
+        name: zizmor
+        entry: zizmor --min-severity medium
+        language: system
+        files: ^\.github/(workflows/|zizmor\.yml$)
+        pass_filenames: false
+        args: [.github/workflows/]
+
       - id: clippy
         name: clippy
         entry: cargo clippy --all-targets --all-features --locked -- -D warnings

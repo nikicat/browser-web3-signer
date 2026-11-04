@@ -12,7 +12,7 @@ default:
     @just --list
 
 # Everything CI runs, in order. Use before pushing.
-ci: fmt-check toml-check lint build test
+ci: fmt-check toml-check lint doc deny scripts-check workflows-check build test
 
 # Run the test suite (matches CI).
 test:
@@ -39,6 +39,23 @@ toml-check:
 # Clippy with warnings denied (matches CI).
 lint:
     cargo clippy --all-targets --all-features --locked -- -D warnings
+
+# Rustdoc with warnings denied (matches CI).
+doc:
+    RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --workspace --all-features --locked
+
+# Dependency advisories, licenses and sources (matches CI).
+deny:
+    cargo deny --locked check
+
+# Lint the shell scripts (matches CI).
+scripts-check:
+    git ls-files -z '*.sh' | xargs -0 shellcheck
+
+# Lint and security-audit the GitHub workflows (matches CI).
+workflows-check:
+    actionlint
+    zizmor --min-severity medium .github/workflows/
 
 # Coverage summary in the terminal.
 coverage:

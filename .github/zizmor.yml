@@ -1,0 +1,12 @@
+# zizmor (GitHub Actions security audit). CI runs it at --min-severity medium.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # GitHub's own actions follow its tag discipline; every other action is pinned by SHA.
+        "actions/*": ref-pin
+        "*": hash-pin
+  unpinned-images:
+    # Arch is rolling: the CI container tracks archlinux:latest on purpose, so the toolchain and
+    # tools match a current Arch install.
+    disable: true
