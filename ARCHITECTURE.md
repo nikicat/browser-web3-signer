@@ -191,10 +191,9 @@ duplicated-bug problem the split was motivated by: the "don't `completeError` on
 catch" contract and the settled-result / terminal-delivery handling (which had landed in
 `evm.html` but not `tron.html`) are now defined once and apply to both chains.
 
-This is the one place a small future build step could help: see the `APP_CORE_JS` TODO in
-`crates/browser-web3-signer-core/src/http.rs` for authoring the shared core (and the adapters)
-in TypeScript, transpiled either at serve time via a Deno runtime or in a build step, kept as
-hand-written JS for now so `include_str!` needs no toolchain in the Node-less CI build.
+This is the one place a small future build step could help: authoring the shared core (and the
+adapters) in TypeScript is task T0004 (`.tasks/0004-app-core-typescript.md`); it stays
+hand-written JS so `include_str!` needs no toolchain in the Node-less CI build.
 
 ## Tooling
 
@@ -278,10 +277,8 @@ child you spawned).
   and the branch, runs CI, and pushes the `go/vX.Y.Z` tag that versions the Go module (a
   subdirectory module needs its own prefixed tag). Only admins may create `v*` tags (a tag
   ruleset), and the publishing jobs run in a `release` environment that only `v*` tags reach.
-  *Go auto-install is deferred*: a Go module is served verbatim from the git tree, so shipping a
-  binary means either committing artifacts or downloading at runtime — the plan, when warranted,
-  is a runtime download verified against a committed per-release SHA-256 table
-  (hc-install-grade; stronger than the unverified downloads of playwright-go/go-rod). Until then
+  *Go auto-install is deferred* (task T0006): a Go module is served verbatim from the git tree,
+  so shipping a binary means either committing artifacts or downloading at runtime. Until then
   Go users build from source, use `BROWSER_WEB3_SIGNER_BIN`, or grab a release binary.
 - **Phase 5 — full multi-client daemon (deferred; build only on demand).** A standalone
   `daemon start|stop|status` with a discovery file (`{port, pid, token}`), bearer-token auth, a
@@ -290,7 +287,7 @@ child you spawned).
   and Phase 4 doesn't meet: **several independent processes sharing one connected wallet tab.**
   Absent that, it is over-engineering — the per-binding managed subprocess above already gives a
   single consumer a persistent session. The `start_with` / `build_router_with` extension point
-  (above) is the seam this would mount on if built.
+  (above) is the seam this would mount on if built. Tracked as task T0005.
 - **Phase 6 — tests & docs.** Integration tests and a Playwright mock-wallet e2e against the
   Rust bridge (✅ EVM + TRON + Bitcoin, in [`tests/e2e-browser`](tests/e2e-browser)), plus expanded
   docs. The e2e suite drives the real bridge through feature-gated harness binaries (`evm-harness`,

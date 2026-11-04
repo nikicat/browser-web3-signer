@@ -29,10 +29,8 @@ use crate::types::{CompleteApiRequest, PendingApiResponse, Request};
 /// a thin chain adapter, so the bridge protocol and error contract are defined in exactly one
 /// place.
 ///
-/// TODO: author this (and the per-page adapters) in TypeScript for type safety, then either
-/// transpile with a Deno runtime that serves the JS from the `.ts` on the fly, or compile it in a
-/// build step and embed the emitted `.js`. Kept as hand-written JS for now so `include_str!` works
-/// in the Node-less CI build with no extra toolchain.
+/// Hand-written JS so `include_str!` works in the Node-less CI build; moving it to TypeScript is
+/// task T0004.
 pub const APP_CORE_JS: &str = include_str!("../web/app-core.js");
 
 /// The approval pages' shared styles, served at `/app-core.css`; each page sets only its brand

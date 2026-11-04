@@ -112,8 +112,6 @@ Rejections stay in-page; a wallet with no account-change UI (`null` / -32601) lo
 
 ## Notes for future work
 
-- EIP-7846 `wallet_connect` was not implemented by any of the wallets checked (2026-07); worth
-  revisiting as adoption grows — it standardizes exactly this.
 - When a wallet misbehaves here, check the wallet's actual source rather than EIP docs — the
   EIP-2255 UX is unspecified and implementations diverge widely (this document exists because
   two plausible mechanisms were "correct per spec" but wrong for Ambire).
