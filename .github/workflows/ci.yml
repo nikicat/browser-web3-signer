@@ -115,6 +115,15 @@ jobs:
         working-directory: tests/e2e-browser
         run: npm test
 
+      # A flaky failure is only diagnosable from its screenshots and trace.
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-results
+          path: tests/e2e-browser/test-results/
+          retention-days: 14
+
   e2e-leather:
     name: e2e-leather (CLI → real Leather extension → regtest)
     runs-on: ubuntu-latest
@@ -176,6 +185,15 @@ jobs:
         env:
           LEATHER_EXT_DIR: ${{ github.workspace }}/target/leather/apps/extension/dist
         run: npx playwright test btc-leather
+
+      # A flaky failure is only diagnosable from its screenshots and trace.
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-leather-test-results
+          path: tests/e2e-browser/test-results/
+          retention-days: 14
 
   ts-binding:
     name: ts-binding (${{ matrix.runner }}, node + deno)
