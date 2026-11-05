@@ -8,7 +8,8 @@ export default defineConfig({
   reporter: "list",
   timeout: 30000,
   use: {
-    trace: "on-first-retry",
+    // No retries are configured, so "on-first-retry" never recorded one.
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],

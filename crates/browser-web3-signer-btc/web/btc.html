@@ -482,14 +482,20 @@
         var DRIVERS = [unisatDriver, leatherDriver];
         var driver = null;
 
+        function findWallet() {
+          return (
+            DRIVERS.filter(function (d) {
+              return d.present();
+            })[0] || null
+          );
+        }
+
         // Wallets inject at document_start, but give them a moment anyway.
         function waitForWallet(timeoutMs) {
           var deadline = Date.now() + timeoutMs;
           return new Promise(function (resolve) {
             (function tick() {
-              var found = DRIVERS.filter(function (d) {
-                return d.present();
-              })[0];
+              var found = findWallet();
               if (found || Date.now() >= deadline) {
                 resolve(found || null);
                 return;
@@ -519,6 +525,7 @@
             driver = await waitForWallet(1500);
           },
           hasWallet: function () {
+            if (!driver) driver = findWallet(); // a wallet that injected late
             return !!driver;
           },
           walletName: function () {
