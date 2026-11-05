@@ -25,9 +25,10 @@ the node (`testmempoolaccept`, mempool lookups) and bip322-js.
   network, the way Leather's own suite skips onboarding. Every other host is refused, except a few
   Leather API endpoints its screens wait on (fees, prices), answered locally in `fixtures/leather.mts`.
   `LEATHER_E2E_DEBUG=1` logs refused requests and the popups' console errors.
-- **Extension:** Leather ships no built artifacts, so `scripts/build-leather.sh` builds the pinned
-  release in test mode into `target/leather` (`just e2e-leather-build`). The suite skips unless
-  `LEATHER_EXT_DIR` points at the build; `just e2e-leather` builds and runs it.
+- **Extension:** Leather ships no built artifacts, so `scripts/fetch-leather.sh` downloads a
+  test-mode CRX released from our fork (`nikicat/leather-mono`: the pinned upstream release plus
+  our fixes) into `target/leather/dist` (`just e2e-leather-fetch`). The suite skips unless
+  `LEATHER_EXT_DIR` points at it; `just e2e-leather` fetches and runs it.
 
 ## How it works
 

@@ -6,7 +6,7 @@
  * `apps/extension/tests/page-object-models/onboarding.page.ts` at `@leather.io/extension-v6.115.0`
  * (MIT License, Copyright (c) 2023 Leather Wallet LLC). They are the publicly documented test
  * mnemonic ("abandon ×11 cactus") encrypted under Leather's test password — no real funds, ever.
- * `_persist.version` ties them to that release: re-copy them when bumping LEATHER_VERSION.
+ * `_persist.version` ties them to that release: re-copy them when bumping the Leather release in scripts/fetch-leather.sh.
  */
 
 const testFingerprint = 'e87a850b';

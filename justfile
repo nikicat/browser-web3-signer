@@ -108,12 +108,12 @@ manual-test-evm: build
 manual-test-tron: build
     ./scripts/manual-test-tron.sh
 
-# Build the pinned Leather release (test mode) into target/leather for the real-wallet Bitcoin e2e.
-# Requires node >= 22.15 and pnpm; the first build takes a while.
-e2e-leather-build:
-    ./scripts/build-leather.sh
+# Fetch the pinned Leather test-mode build (our fork's CRX) into target/leather for the
+# real-wallet Bitcoin e2e.
+e2e-leather-fetch:
+    ./scripts/fetch-leather.sh
 
 # Real-wallet Bitcoin e2e: the CLI against the real Leather extension on a throwaway regtest chain.
-# Requires bitcoind on PATH and `just e2e-leather-build`.
-e2e-leather: build e2e-leather-build
-    cd tests/e2e-browser && LEATHER_EXT_DIR="$PWD/../../target/leather/apps/extension/dist" npx playwright test btc-leather
+# Requires bitcoind on PATH and `just e2e-leather-fetch`.
+e2e-leather: build e2e-leather-fetch
+    cd tests/e2e-browser && LEATHER_EXT_DIR="$PWD/../../target/leather/dist" npx playwright test btc-leather

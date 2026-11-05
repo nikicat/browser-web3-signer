@@ -38,7 +38,7 @@ const WORKSPACE = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const BRIDGE_PORT = "38490";
 
 const extDir = leatherExtDir();
-test.skip(!extDir, "LEATHER_EXT_DIR is not set (build Leather with `just e2e-leather-build`)");
+test.skip(!extDir, "LEATHER_EXT_DIR is not set (build Leather with `just e2e-leather-fetch`)");
 test.describe.configure({ mode: "serial" });
 test.setTimeout(90_000);
 
