@@ -152,24 +152,8 @@ jobs:
           tar xzf "$tarball"
           echo "$PWD/bitcoin-${BITCOIN_VERSION}/bin" >> "$GITHUB_PATH"
 
-      # The Leather build is slow and depends only on the pinned tag in build-leather.sh.
-      - name: Cache Leather build
-        id: leather-cache
-        uses: actions/cache@v6
-        with:
-          path: target/leather/apps/extension/dist
-          key: leather-dist-${{ hashFiles('scripts/build-leather.sh') }}
-
-      - uses: actions/setup-node@v7
-        if: steps.leather-cache.outputs.cache-hit != 'true'
-        with:
-          node-version: 22
-
-      - name: Build Leather (test mode)
-        if: steps.leather-cache.outputs.cache-hit != 'true'
-        run: |
-          corepack enable
-          scripts/build-leather.sh
+      - name: Fetch Leather (test mode, our fork's CRX)
+        run: scripts/fetch-leather.sh
 
       - name: Build the signer
         run: cargo build --bin browser-web3-signer --locked
@@ -183,7 +167,7 @@ jobs:
       - name: Run real-wallet Bitcoin e2e
         working-directory: tests/e2e-browser
         env:
-          LEATHER_EXT_DIR: ${{ github.workspace }}/target/leather/apps/extension/dist
+          LEATHER_EXT_DIR: ${{ github.workspace }}/target/leather/dist
         run: npx playwright test btc-leather
 
       # A flaky failure is only diagnosable from its screenshots and trace.

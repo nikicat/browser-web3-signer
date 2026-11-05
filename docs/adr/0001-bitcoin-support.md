@@ -188,8 +188,9 @@ reimplementing them.
   `bitcoind -regtest` plus a small Esplora API over its RPC stands in for the network, the
   signed-in wallet is seeded the way Leather's own suite seeds it, and results are checked by
   the node (`testmempoolaccept`, mempool lookups) and bip322-js. Leather publishes no built
-  artifacts, so `scripts/build-leather.sh` builds the pinned release in its test mode; CI caches
-  it by that pin.
+  artifacts, so `scripts/fetch-leather.sh` downloads a test-mode CRX released from our fork
+  (`nikicat/leather-mono`): the pinned upstream release plus our fixes, such as restoring the
+  wallet session only after the store rehydrates.
 - **Unisat can't be tested this way.** Nothing local can stand in for its backend: 68
   proprietary endpoints, including server-side transaction building (`create-send-btc`) and
   PSBT decoding for its approval screen (`decode2`). Unisat's own repository has unit tests
