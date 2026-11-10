@@ -9,12 +9,12 @@
     "install": "playwright install chromium"
   },
   "devDependencies": {
-    "@bitcoinerlab/secp256k1": "^1.2.0",
-    "@playwright/test": "^1.48.0",
+    "@bitcoinerlab/secp256k1": "^2.0.0",
+    "@playwright/test": "^1.65.0",
     "@types/chrome": "^0.3.4",
     "@types/node": "^26.6.6",
-    "bip322-js": "^4.0.0",
-    "bitcoinjs-lib": "7.0.1",
+    "bip322-js": "^4.0.1",
+    "bitcoinjs-lib": "7.0.5",
     "typescript": "^7.0.2"
   }
 }
