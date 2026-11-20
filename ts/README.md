@@ -81,6 +81,17 @@ const hash2 = await wallet.sendTransaction({
 await signer.shutdown(); // kill the subprocess when done
 ```
 
+The transport sends `personal_sign`, `eth_sendTransaction` and `eth_signTypedData_v4` to the
+wallet. Every other call goes to the caller's own RPC, because this tool only signs
+([ADR 0008](../docs/adr/0008-no-read-side.md)). Pass either `rpcUrl` or `provider`, which is any
+object that has an EIP-1193 `request` method, such as a viem public client.
+
+viem never puts a chain id in `eth_sendTransaction`, so pass `chainId` to choose the chain.
+
+```ts
+const { account, transport } = await connectWalletViem(signer, { chainId: 1, provider: publicClient });
+```
+
 ### Bitcoin
 
 ```ts
@@ -106,10 +117,12 @@ surfaces as a thrown `Error`; a connected-address mismatch as `WrongWalletAddres
 ```sh
 npm install
 npm run typecheck
-npm test          # integration tests against the real Rust subprocess (build the binary first)
+npm test
 ```
 
-The tests drive the real `serve` process but substitute a fake-wallet script for the browser (via
-`--browser`), so they exercise the whole stack — spawn, port discovery, request, result — without
-a real wallet. CI runs the typecheck + this suite as a dedicated `ts-binding` job on every push
-and PR.
+The unit tests need no binary. The integration test, `wallet-signer.test.ts`, runs the real
+`serve` process with a fake wallet in place of the browser. It needs the `browser-web3-signer`
+binary, which it finds as [Install](#install) describes. In a repo checkout, run `cargo build`
+first.
+
+CI runs the typecheck and all these tests as a dedicated `ts-binding` job on every push and PR.
