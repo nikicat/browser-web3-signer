@@ -10,7 +10,11 @@ import { bytesToHex } from "viem";
 import type { Address, CustomSource, CustomTransport, Hex } from "viem";
 
 import type { SignTypedDataParams, WalletSignerClient } from "./client.ts";
-import { walletSignerTransport, type WalletSignerTransportOptions } from "./transport.ts";
+import {
+  chainParam,
+  walletSignerTransport,
+  type WalletSignerTransportOptions,
+} from "./transport.ts";
 
 /** A viem hybrid account: `json-rpc` send path + direct message/typed-data signing. */
 export interface ViemBrowserAccount {
@@ -22,10 +26,10 @@ export interface ViemBrowserAccount {
 }
 
 /** Options for {@link connectWalletViem}. */
-export interface ConnectWalletViemOptions extends WalletSignerTransportOptions {
+export type ConnectWalletViemOptions = WalletSignerTransportOptions & {
   /** Pre-connected address — skips the `connectWallet()` browser prompt if provided. */
   address?: Address;
-}
+};
 
 /**
  * Connect to a browser wallet and return a viem hybrid account + custom transport, both bound to
@@ -35,14 +39,15 @@ export async function connectWalletViem(
   signer: WalletSignerClient,
   options?: ConnectWalletViemOptions,
 ): Promise<{ account: ViemBrowserAccount; transport: CustomTransport }> {
-  const address = (options?.address ?? (await signer.connectWallet())) as Address;
+  const chain = chainParam(options?.chainId);
+  const address = (options?.address ?? (await signer.connectWallet(chain))) as Address;
 
   const signMessage: CustomSource["signMessage"] = async ({ message }) => {
     const signable =
       typeof message === "string"
         ? message
         : { raw: typeof message.raw === "string" ? message.raw : bytesToHex(message.raw) };
-    return (await signer.signMessage({ message: signable, address })) as Hex;
+    return (await signer.signMessage({ message: signable, address, ...chain })) as Hex;
   };
 
   // viem's CustomSource["signTypedData"] uses heavily generic conditional types that TS can't
@@ -51,6 +56,7 @@ export async function connectWalletViem(
     return (await signer.signTypedData({
       ...(params as unknown as SignTypedDataParams),
       address,
+      ...chain,
     })) as Hex;
   };
 

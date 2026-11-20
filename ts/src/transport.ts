@@ -1,57 +1,94 @@
 /**
- * A viem `CustomTransport` that routes wallet methods through the {@link WalletSignerClient}
- * (i.e. the browser wallet, via the Rust bridge) and forwards all other JSON-RPC methods to a
- * plain read RPC. Ported from the reference `transport.ts`, retargeted at the HTTP client.
+ * A viem transport that sends the wallet methods to the browser wallet through a
+ * {@link WalletSignerClient}. Every other JSON-RPC call goes to the caller's own RPC, since reads
+ * belong to the caller (`docs/adr/0008-no-read-side.md`).
  */
 
-import { custom, hexToBytes } from "viem";
-import type { CustomTransport, Hex } from "viem";
+import {
+  BaseError,
+  custom,
+  hexToBigInt,
+  hexToBytes,
+  hexToNumber,
+  http,
+  validateTypedData,
+} from "viem";
+import type {
+  CustomTransport,
+  EIP1193Parameters,
+  Hex,
+  PublicRpcSchema,
+  Quantity,
+  RpcTransactionRequest,
+  WalletRpcSchema,
+} from "viem";
 
-import type { SendTransactionParams, SignableMessage, WalletSignerClient } from "./client.ts";
+import type {
+  SendTransactionParams,
+  SignableMessage,
+  SignTypedDataParams,
+  WalletSignerClient,
+} from "./client.ts";
 
-/** Options for {@link walletSignerTransport}. */
-export interface WalletSignerTransportOptions {
-  /** JSON-RPC endpoint for chain-reading calls (everything not routed to the wallet). */
-  rpcUrl?: string;
-  /** Default chain id, surfaced for `eth_chainId`. */
-  chainId?: number;
+export interface ReadProvider {
+  request(args: EIP1193Parameters): Promise<unknown>;
 }
 
-/** Create a viem custom transport backed by a {@link WalletSignerClient}. */
+export type ReadSource =
+  | {
+      /** A JSON-RPC endpoint URL, reached over HTTP. */
+      rpcUrl?: string;
+      provider?: never;
+    }
+  | {
+      provider: ReadProvider;
+      rpcUrl?: never;
+    };
+
+/** Thrown when a chain-reading call reaches a transport given neither `rpcUrl` nor `provider`. */
+export class NoReadRpcError extends BaseError {
+  override readonly name = "NoReadRpcError";
+  constructor(method: string) {
+    super(
+      `No rpcUrl or provider configured for read method ${method}. Pass one in transport options.`,
+    );
+  }
+}
+
+/** Options for {@link walletSignerTransport}. */
+export type WalletSignerTransportOptions = ReadSource & {
+  /**
+   * The chain that the wallet switches to before it signs or sends, and that `eth_chainId` returns.
+   * A transaction's own chain id wins. When this is unset, the wallet methods use
+   * `WalletSignerClientOptions.defaultChainId`, and `eth_chainId` errors.
+   */
+  chainId?: number;
+};
+
 export function walletSignerTransport(
   signer: WalletSignerClient,
   options?: WalletSignerTransportOptions,
 ): CustomTransport {
+  const chain = chainParam(options?.chainId);
+  const read = readerFor(options);
   return custom(
     {
-      async request({ method, params }) {
+      async request({ method, params }: TransportRequest) {
         switch (method) {
           case "personal_sign": {
-            const [messageHex, address] = params as [Hex, string];
-            return signer.signMessage({ message: signableFromHex(messageHex), address });
+            const [messageHex, address] = params;
+            return signer.signMessage({ message: signableFromHex(messageHex), address, ...chain });
           }
 
           case "eth_sendTransaction": {
-            const [tx] = params as [Partial<Record<string, string>>];
-            // no `to` deploys `data` as a new contract, as viem's deployContract sends it
-            const sendParams: SendTransactionParams = {};
-            if (tx.to) sendParams.to = tx.to;
-            if (tx.from) sendParams.from = tx.from;
-            if (tx.data) sendParams.data = tx.data;
-            if (tx.value) sendParams.value = BigInt(tx.value).toString();
-            if (tx.gas) sendParams.gasLimit = BigInt(tx.gas).toString();
-            if (tx.maxFeePerGas) sendParams.maxFeePerGas = BigInt(tx.maxFeePerGas).toString();
-            if (tx.maxPriorityFeePerGas) {
-              sendParams.maxPriorityFeePerGas = BigInt(tx.maxPriorityFeePerGas).toString();
-            }
-            if (tx.chainId) sendParams.chainId = Number(BigInt(tx.chainId));
-            return signer.sendTransaction(sendParams);
+            const [tx] = params;
+            return signer.sendTransaction({ ...chain, ...sendParamsFromRpc(tx) });
           }
 
           case "eth_signTypedData_v4": {
-            const [address, typedDataJson] = params as [string, string];
-            const { domain, types, primaryType, message } = JSON.parse(typedDataJson);
-            return signer.signTypedData({ domain, types, primaryType, message, address });
+            const [address, typedDataJson] = params;
+            const typedData = parseTypedData(typedDataJson);
+            return signer.signTypedData({ ...typedData, address, ...chain });
           }
 
           case "eth_chainId": {
@@ -61,29 +98,53 @@ export function walletSignerTransport(
             return `0x${options.chainId.toString(16)}`;
           }
 
-          default: {
-            if (!options?.rpcUrl) {
-              throw new Error(
-                `No rpcUrl configured for read method ${method}. Pass rpcUrl in transport options.`,
-              );
-            }
-            const resp = await fetch(options.rpcUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params ?? [] }),
-            });
-            const json = (await resp.json()) as {
-              result?: unknown;
-              error?: { message?: string };
-            };
-            if (json.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
-            return json.result;
-          }
+          default:
+            return read({ method, params });
         }
       },
     },
     { retryCount: 0 },
   );
+}
+
+export function chainParam(chainId: number | undefined): { chainId?: number } {
+  return chainId === undefined ? {} : { chainId };
+}
+
+type TransportRequest = EIP1193Parameters<WalletRpcSchema> | EIP1193Parameters<PublicRpcSchema>;
+
+/**
+ * A request can carry a chain id when a caller other than viem sends it, and viem's own type
+ * leaves that field out.
+ */
+type RpcSendRequest = RpcTransactionRequest & { chainId?: Quantity };
+
+function sendParamsFromRpc(tx: RpcSendRequest): SendTransactionParams {
+  const sendParams: SendTransactionParams = {};
+  if (tx.to) sendParams.to = tx.to;
+  if (tx.from) sendParams.from = tx.from;
+  if (tx.data) sendParams.data = tx.data;
+  if (tx.value) sendParams.value = decimal(tx.value);
+  if (tx.gas) sendParams.gasLimit = decimal(tx.gas);
+  if (tx.maxFeePerGas) sendParams.maxFeePerGas = decimal(tx.maxFeePerGas);
+  if (tx.maxPriorityFeePerGas) sendParams.maxPriorityFeePerGas = decimal(tx.maxPriorityFeePerGas);
+  if (tx.chainId) sendParams.chainId = hexToNumber(tx.chainId);
+  return sendParams;
+}
+
+function decimal(quantity: Quantity): string {
+  return hexToBigInt(quantity).toString();
+}
+
+/**
+ * Returns the typed data in the JSON text of an `eth_signTypedData_v4` request. Errors with a
+ * `SyntaxError` when the text is not JSON, and with one of viem's `BaseError`s when the domain,
+ * the primary type or the message does not match the declared types.
+ */
+function parseTypedData(json: string): SignTypedDataParams {
+  const { domain, types, primaryType, message } = JSON.parse(json);
+  validateTypedData({ domain, types, primaryType, message });
+  return { domain, types, primaryType, message };
 }
 
 /**
@@ -97,4 +158,16 @@ function signableFromHex(hex: Hex): SignableMessage {
   } catch {
     return { raw: hex };
   }
+}
+
+function readerFor(options?: WalletSignerTransportOptions): ReadProvider["request"] {
+  const provider = options?.provider;
+  if (provider) return (args) => provider.request(args);
+  const rpcUrl = options?.rpcUrl;
+  if (!rpcUrl) {
+    return async ({ method }) => {
+      throw new NoReadRpcError(method);
+    };
+  }
+  return http(rpcUrl, { retryCount: 0 })({}).request;
 }

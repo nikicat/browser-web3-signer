@@ -12,7 +12,11 @@
  * ```
  */
 
-export { walletSignerTransport, type WalletSignerTransportOptions } from "./transport.ts";
+export {
+  NoReadRpcError,
+  walletSignerTransport,
+  type WalletSignerTransportOptions,
+} from "./transport.ts";
 
 export {
   connectWalletViem,
