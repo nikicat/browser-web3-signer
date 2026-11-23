@@ -105,9 +105,8 @@ binary at `target/release/browser-web3-signer`.
 browser-web3-signer <evm|tron|btc> <command> [flags]
 ```
 
-Global flags (any command): `--browser <name>` (open a specific browser instead of the
-default), `--print` (print the approval URL but don't open a browser), `--json` (machine-
-readable JSON on stdout; human text otherwise). Progress/prompts go to stderr, results to
+Global flags (any command): `--print` (print the approval URL but don't open a browser),
+`--json` (machine-readable JSON on stdout; human text otherwise). Progress/prompts go to stderr, results to
 stdout.
 
 #### EVM
@@ -116,6 +115,7 @@ stdout.
 browser-web3-signer evm connect --chain 1
 browser-web3-signer evm send-transaction --to 0x… --value 1000000000000000 --chain 1
 browser-web3-signer evm send-transaction --data 0x6080…   # no --to: deploys the init code as a new contract
+browser-web3-signer evm send-transaction --to 0x… --data-file ./calldata.hex    # calldata too long for one argument
 browser-web3-signer evm sign-message --message "hello"
 browser-web3-signer evm sign-message --raw 0x…        # exact bytes, e.g. a Safe message hash
 browser-web3-signer evm sign-typed-data --file ./typed-data.json    # {domain,types,primaryType,message}
@@ -134,6 +134,7 @@ browser-web3-signer tron trigger-contract --contract T… --selector 'transfer(a
     --params '[{"type":"address","value":"T…"},{"type":"uint256","value":"1"}]'
 browser-web3-signer tron sign-message --message "hello"
 browser-web3-signer tron deploy-contract --abi-file ./abi.json --bytecode 0x…
+browser-web3-signer tron deploy-contract --abi-file ./abi.json --bytecode-file ./code.hex  # too long for one argument
 ```
 
 Networks: `mainnet`, `shasta`, `nile`. Signing and transaction building happen browser-side
@@ -166,7 +167,7 @@ Runs the bridge on a stable port for the process lifetime and exposes `POST /api
 (body is a request `{type, …}`; opens the wallet, blocks, returns `{success, result}` or
 `{success:false, error, code?}`) and `GET /api/v1/health`. This is what the TypeScript and Go
 bindings spawn and drive over HTTP; a binding for any other language is a subprocess + two
-endpoints away. Honors the global `--browser` / `--print` flags for how the approval page opens.
+endpoints away. Honors the global `--print` flag for how the approval page opens.
 
 #### Remote / headless machines
 
@@ -353,7 +354,7 @@ startup. Unset or empty means any account.
 
 ```sh
 just            # list recipes
-just ci         # fmt + taplo + clippy + build + test (what CI runs)
+just ci         # what CI runs
 just test
 just lint       # clippy -D warnings
 just coverage   # cargo-llvm-cov summary

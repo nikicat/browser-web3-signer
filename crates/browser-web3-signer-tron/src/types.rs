@@ -5,23 +5,26 @@ use browser_web3_signer_core::parse::{opt_parsed, req_parsed, str_field};
 use browser_web3_signer_core::{
     ExpectedAccount, HexData, Request, RequestMeta, UrlKind, expect_account,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::config;
 use crate::domain::{EnergyLimit, Percentage, Sun, TronAddress, TronNetwork};
 
 /// TIP-712 typed data (shape mirrors EIP-712). Open-ended sub-objects stay as JSON.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypedData {
     /// TIP-712 domain separator.
+    #[serde(default = "browser_web3_signer_core::parse::empty_object")]
     pub domain: serde_json::Value,
     /// Type definitions.
+    #[serde(default = "browser_web3_signer_core::parse::empty_object")]
     pub types: serde_json::Value,
     /// Primary type name.
     #[serde(rename = "primaryType")]
     pub primary_type: String,
     /// The structured message.
+    #[serde(default = "browser_web3_signer_core::parse::empty_object")]
     pub message: serde_json::Value,
 }
 
@@ -207,12 +210,7 @@ impl Request for TronRequest {
                 network,
             )),
             "sign_typed_data" => Ok(Self::sign_typed_data(
-                TypedData {
-                    domain: json_field(body, "domain"),
-                    types: json_field(body, "types"),
-                    primary_type: str_field(body, "primaryType")?.to_owned(),
-                    message: json_field(body, "message"),
-                },
+                TypedData::deserialize(body).map_err(|e| format!("invalid typed data: {e}"))?,
                 opt_parsed(body, "address")?,
                 network,
             )),
@@ -379,13 +377,6 @@ impl TronRequest {
             address,
         }
     }
-}
-
-/// Read an open-ended JSON sub-object, defaulting to `{}` when absent (for TIP-712 parts).
-fn json_field(body: &serde_json::Value, key: &str) -> serde_json::Value {
-    body.get(key)
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}))
 }
 
 #[cfg(test)]

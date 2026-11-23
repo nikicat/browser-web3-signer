@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use browser_web3_signer_core::{BindPort, HexData, Signature, TxHash, Url};
 use browser_web3_signer_tron::{
     DeployContractParams, EnergyLimit, Percentage, SendTransactionParams, Sun,
@@ -40,6 +40,15 @@ pub(crate) enum TronCommand {
         /// Optional hex memo (0x-hex).
         #[arg(long)]
         data: Option<HexData>,
+        /// File that holds the memo as 0x-hex, for a memo longer than the OS allows in one
+        /// argument (128 KiB on Linux).
+        #[arg(
+            long = "data-file",
+            value_name = "PATH",
+            value_parser = crate::parse_file::<HexData>,
+            conflicts_with = "data"
+        )]
+        data_file: Option<HexData>,
         /// Network.
         #[arg(long)]
         network: Option<TronNetwork>,
@@ -74,8 +83,17 @@ pub(crate) enum TronCommand {
         #[arg(long = "abi-file")]
         abi_file: PathBuf,
         /// Compiled bytecode (0x-hex).
-        #[arg(long)]
-        bytecode: HexData,
+        #[arg(long, required_unless_present = "bytecode_file")]
+        bytecode: Option<HexData>,
+        /// File that holds the bytecode as 0x-hex, for bytecode longer than the OS allows in one
+        /// argument (128 KiB on Linux).
+        #[arg(
+            long = "bytecode-file",
+            value_name = "PATH",
+            value_parser = crate::parse_file::<HexData>,
+            conflicts_with = "bytecode"
+        )]
+        bytecode_file: Option<HexData>,
         /// Human-readable contract name (shown in the UI).
         #[arg(long)]
         name: Option<String>,
@@ -125,16 +143,6 @@ pub(crate) enum TronCommand {
         #[arg(long)]
         network: Option<TronNetwork>,
     },
-}
-
-/// Typed-data file shape (`{domain, types, primaryType, message}`).
-#[derive(serde::Deserialize)]
-struct TypedDataFile {
-    domain: serde_json::Value,
-    types: serde_json::Value,
-    #[serde(rename = "primaryType")]
-    primary_type: String,
-    message: serde_json::Value,
 }
 
 /// Owns the TRON signer plus presentation context for one CLI invocation; each subcommand is a
@@ -207,10 +215,8 @@ impl TronCli {
         params: DeployContractParams,
     ) -> Result<()> {
         let network = self.network_or_default(params.network);
-        let abi_contents = std::fs::read_to_string(abi_file)
-            .with_context(|| format!("reading ABI file {}", abi_file.display()))?;
         let params = DeployContractParams {
-            abi: serde_json::from_str(&abi_contents).context("parsing ABI JSON")?,
+            abi: crate::read_json(abi_file, "ABI")?,
             ..params
         };
         let prepared = self
@@ -243,16 +249,7 @@ impl TronCli {
         address: Option<TronAddress>,
         network: Option<TronNetwork>,
     ) -> Result<()> {
-        let contents = std::fs::read_to_string(file)
-            .with_context(|| format!("reading typed-data file {}", file.display()))?;
-        let parsed: TypedDataFile =
-            serde_json::from_str(&contents).context("parsing typed-data JSON")?;
-        let typed = TypedData {
-            domain: parsed.domain,
-            types: parsed.types,
-            primary_type: parsed.primary_type,
-            message: parsed.message,
-        };
+        let typed: TypedData = crate::read_json(file, "typed-data")?;
         let req =
             TronRequest::sign_typed_data(typed, address, Some(self.network_or_default(network)));
         self.sign(req).await
@@ -306,13 +303,14 @@ pub(crate) async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
             from,
             amount,
             data,
+            data_file,
             network,
         } => {
             cli.send_transaction(SendTransactionParams {
                 to,
                 from,
                 amount,
-                data,
+                data: data.or(data_file),
                 network,
             })
             .await
@@ -340,6 +338,7 @@ pub(crate) async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
         TronCommand::DeployContract {
             abi_file,
             bytecode,
+            bytecode_file,
             name,
             params,
             from,
@@ -351,7 +350,9 @@ pub(crate) async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
         } => {
             let deploy = DeployContractParams {
                 abi: serde_json::Value::Null, // filled from --abi-file inside deploy_contract
-                bytecode,
+                bytecode: bytecode
+                    .or(bytecode_file)
+                    .expect("clap requires --bytecode or --bytecode-file"),
                 contract_name: name,
                 parameters: params.map(JsonString::into_value),
                 from,
@@ -377,5 +378,28 @@ pub(crate) async fn run(cmd: TronCommand, ctx: CliContext) -> Result<()> {
             address,
             network,
         } => cli.sign_typed_data(&file, address, network).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use crate::{Cli, TempFile};
+
+    #[test]
+    fn bytecode_file_stands_in_for_bytecode() {
+        let code = TempFile::new("code.hex", "0x6080\n");
+        let deploy = [
+            "browser-web3-signer",
+            "tron",
+            "deploy-contract",
+            "--abi-file",
+            "a.json",
+        ];
+        let parse = |rest: &[&str]| Cli::try_parse_from([&deploy[..], rest].concat());
+        assert!(parse(&["--bytecode-file", code.path()]).is_ok());
+        assert!(parse(&[]).is_err());
+        assert!(parse(&["--bytecode", "0x00", "--bytecode-file", code.path()]).is_err());
     }
 }

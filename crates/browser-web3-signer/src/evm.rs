@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use browser_web3_signer_core::{BindPort, Url};
 use browser_web3_signer_evm::{
     Address, Bytes, CallData, ChainId, ConnectParams, EvmRequest, EvmSigner, SendTransactionParams,
@@ -32,10 +32,10 @@ pub(crate) enum EvmCommand {
         #[arg(long = "chain-name")]
         chain_name: Option<String>,
     },
-    /// Send ETH, call a contract, or deploy one (no `--to`, its init code in `--data`).
+    /// Send ETH, call a contract, or deploy a contract.
     SendTransaction {
-        /// Recipient / contract address; without it, the tx deploys `--data` as a new contract.
-        #[arg(long, required_unless_present = "data")]
+        /// Recipient / contract address; without it, the tx deploys the calldata as a new contract.
+        #[arg(long, required_unless_present_any = ["data", "data_file"])]
         to: Option<Address>,
         /// Expected `from` address (UI rejects on mismatch).
         #[arg(long)]
@@ -46,6 +46,15 @@ pub(crate) enum EvmCommand {
         /// Calldata (0x-hex).
         #[arg(long)]
         data: Option<CallData>,
+        /// File that holds the calldata as 0x-hex, for calldata longer than the OS allows in one
+        /// argument (128 KiB on Linux).
+        #[arg(
+            long = "data-file",
+            value_name = "PATH",
+            value_parser = crate::parse_file::<CallData>,
+            conflicts_with = "data"
+        )]
+        data_file: Option<CallData>,
         /// Chain id.
         #[arg(long)]
         chain: Option<ChainId>,
@@ -87,16 +96,6 @@ pub(crate) enum EvmCommand {
         #[arg(long)]
         chain: Option<ChainId>,
     },
-}
-
-/// Typed-data file shape (`{domain, types, primaryType, message}`).
-#[derive(serde::Deserialize)]
-struct TypedDataFile {
-    domain: serde_json::Value,
-    types: serde_json::Value,
-    #[serde(rename = "primaryType")]
-    primary_type: String,
-    message: serde_json::Value,
 }
 
 /// Owns the signer plus presentation context for one CLI invocation, so each subcommand is a
@@ -186,16 +185,7 @@ impl EvmCli {
         address: Option<Address>,
         chain: Option<ChainId>,
     ) -> Result<()> {
-        let contents = std::fs::read_to_string(file)
-            .with_context(|| format!("reading typed-data file {}", file.display()))?;
-        let parsed: TypedDataFile =
-            serde_json::from_str(&contents).context("parsing typed-data JSON")?;
-        let typed = TypedData {
-            domain: parsed.domain,
-            types: parsed.types,
-            primary_type: parsed.primary_type,
-            message: parsed.message,
-        };
+        let typed: TypedData = crate::read_json(file, "typed-data")?;
         let req = EvmRequest::sign_typed_data(typed, address, Some(self.chain_or_default(chain)));
         self.sign(req).await
     }
@@ -226,6 +216,7 @@ pub(crate) async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
             from,
             value,
             data,
+            data_file,
             chain,
             gas_limit,
             max_fee_per_gas,
@@ -236,7 +227,7 @@ pub(crate) async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
                 to,
                 from,
                 value,
-                data,
+                data: data.or(data_file),
                 chain_id: Some(chain_id),
                 gas_limit,
                 max_fee_per_gas,
@@ -264,5 +255,30 @@ pub(crate) async fn run(cmd: EvmCommand, ctx: CliContext) -> Result<()> {
             address,
             chain,
         } => cli.sign_typed_data(&file, address, chain).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use crate::{Cli, TempFile};
+
+    #[test]
+    fn data_file_reads_calldata_and_conflicts_with_data() {
+        let data = TempFile::new("data.hex", "0xdeadbeef\n");
+        let send = ["browser-web3-signer", "evm", "send-transaction"];
+        let parse = |rest: &[&str]| Cli::try_parse_from([&send[..], rest].concat());
+        assert!(parse(&["--data-file", data.path()]).is_ok());
+        assert!(parse(&["--data", "0x00", "--data-file", data.path()]).is_err());
+        data.write("not hex");
+        let bad = parse(&["--data-file", data.path()])
+            .unwrap_err()
+            .to_string();
+        assert!(bad.contains("invalid calldata 'not hex'"), "{bad}");
+        let missing = parse(&["--data-file", "/nonexistent/data.hex"])
+            .unwrap_err()
+            .to_string();
+        assert!(missing.contains("No such file"), "{missing}");
     }
 }
