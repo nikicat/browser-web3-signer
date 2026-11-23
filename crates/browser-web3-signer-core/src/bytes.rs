@@ -10,6 +10,8 @@ use std::str::FromStr;
 
 use serde::{Serialize, Serializer};
 
+use crate::parse::DomainParseError;
+
 /// An arbitrary hex byte blob — EVM calldata or a TRON memo. Stored as raw bytes; parsed from /
 /// serialized to `0x`-prefixed hex (the form the wallet UIs expect).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -33,12 +35,12 @@ impl HexData {
 }
 
 impl FromStr for HexData {
-    type Err = String;
+    type Err = DomainParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let raw = s.strip_prefix("0x").unwrap_or(s);
         hex::decode(raw)
             .map(HexData)
-            .map_err(|e| format!("invalid hex data {s:?}: {e}"))
+            .map_err(|e| DomainParseError::new("hex data", s, e))
     }
 }
 

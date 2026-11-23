@@ -10,8 +10,10 @@ mod output;
 mod serve;
 mod tron;
 
+use anyhow::Context;
 use browser_web3_signer_core::http::VERSION;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use serde::de::DeserializeOwned;
 
 /// Shared CLI context derived from the global options.
 pub(crate) struct CliContext {
@@ -37,6 +39,69 @@ impl std::str::FromStr for JsonString {
     type Err = serde_json::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         serde_json::from_str(s).map(JsonString)
+    }
+}
+
+/// Returns the text of the file at `path`. Errors when it cannot be read, naming it a `what`
+/// file.
+pub(crate) fn read_text(path: &std::path::Path, what: &str) -> anyhow::Result<String> {
+    std::fs::read_to_string(path).with_context(|| format!("reading {what} file {}", path.display()))
+}
+
+/// Returns the JSON in the file at `path` as a `T`. Errors when the file cannot be read or does
+/// not hold a `T`, naming it a `what` file.
+pub(crate) fn read_json<T: DeserializeOwned>(
+    path: &std::path::Path,
+    what: &str,
+) -> anyhow::Result<T> {
+    serde_json::from_str(&read_text(path, what)?).with_context(|| format!("parsing {what} JSON"))
+}
+
+/// Returns the value in the file at `path`, ignoring surrounding whitespace. Errors when the file
+/// cannot be read or does not hold a `T`.
+pub(crate) fn parse_file<T>(path: &str) -> Result<T, Box<dyn std::error::Error + Send + Sync>>
+where
+    T: std::str::FromStr,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    Ok(std::fs::read_to_string(path)?.trim().parse()?)
+}
+
+/// A file in a temporary directory of its own, which is removed on drop.
+#[cfg(test)]
+pub(crate) struct TempFile {
+    dir: std::path::PathBuf,
+    path: std::path::PathBuf,
+}
+
+#[cfg(test)]
+impl TempFile {
+    /// Creates the file `name` holding `contents`.
+    pub(crate) fn new(name: &str, contents: &str) -> Self {
+        let dir = std::env::temp_dir().join(format!("bws-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = Self {
+            path: dir.join(name),
+            dir,
+        };
+        file.write(contents);
+        file
+    }
+
+    /// Replaces the file's contents with `contents`.
+    pub(crate) fn write(&self, contents: &str) {
+        std::fs::write(&self.path, contents).unwrap();
+    }
+
+    pub(crate) fn path(&self) -> &str {
+        self.path.to_str().unwrap()
+    }
+}
+
+#[cfg(test)]
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.dir).ok();
     }
 }
 

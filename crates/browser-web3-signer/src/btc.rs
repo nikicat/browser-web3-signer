@@ -1,8 +1,6 @@
 //! Bitcoin subcommands: one-shot wallet operations via Unisat.
 
-use std::path::PathBuf;
-
-use anyhow::{Context, Result};
+use anyhow::Result;
 use browser_web3_signer_btc::{
     BindPort, BtcNetwork, BtcRequest, BtcSigner, MessageProtocol, MessageSignature, PsbtData,
     SatPerVb, Sats, SendTransferParams, SignMessageParams, SignPsbtParams, Txid, UncheckedAddress,
@@ -50,8 +48,12 @@ pub(crate) enum BtcCommand {
         #[arg(long)]
         psbt: Option<PsbtData>,
         /// Read the PSBT (hex or base64) from a file.
-        #[arg(long = "psbt-file")]
-        psbt_file: Option<PathBuf>,
+        #[arg(
+            long = "psbt-file",
+            value_name = "PATH",
+            value_parser = |p: &str| crate::parse_file::<PsbtData>(p).map(Box::new)
+        )]
+        psbt_file: Option<Box<PsbtData>>,
         /// Input index to sign (repeatable). Default: every input the wallet's account owns. A
         /// Taproot input that lists a leaf script is signed through the leaf, only when listed.
         #[arg(long = "sign-input")]
@@ -210,17 +212,6 @@ fn tx_explorer(network: BtcNetwork, txid: Txid) -> Option<Url> {
     Url::parse(&format!("{}{txid}", block_explorer(network)?)).ok()
 }
 
-/// Read a PSBT from `--psbt` or `--psbt-file` (clap guarantees exactly one is set).
-fn read_psbt(inline: Option<PsbtData>, file: Option<PathBuf>) -> Result<PsbtData> {
-    if let Some(psbt) = inline {
-        return Ok(psbt);
-    }
-    let path = file.context("one of --psbt / --psbt-file is required")?;
-    let contents = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading PSBT file {}", path.display()))?;
-    Ok(contents.parse()?)
-}
-
 /// Run a Bitcoin subcommand by dispatching to the matching [`BtcCli`] method.
 pub(crate) async fn run(cmd: BtcCommand, ctx: CliContext) -> Result<()> {
     let cli = BtcCli::new(ctx);
@@ -253,7 +244,9 @@ pub(crate) async fn run(cmd: BtcCommand, ctx: CliContext) -> Result<()> {
         } => {
             cli.sign_psbt(SignPsbtParams {
                 network: cli.network_or_default(network),
-                psbt: read_psbt(psbt, psbt_file)?,
+                psbt: psbt
+                    .or_else(|| psbt_file.map(|file| *file))
+                    .expect("clap requires --psbt or --psbt-file"),
                 from,
                 sign_inputs: (!sign_inputs.is_empty()).then_some(sign_inputs),
                 finalize,
